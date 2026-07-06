@@ -28,7 +28,7 @@ use fide::FidePlayer;
 use oauth::AuthState;
 #[cfg(all(debug_assertions, not(target_os = "android")))]
 use specta_typescript::{BigIntExportBehavior, Typescript};
-use sysinfo::SystemExt;
+use sysinfo::{RefreshKind, SystemExt};
 use tauri::AppHandle;
 
 use crate::chess::{
@@ -212,7 +212,8 @@ fn is_bmi2_compatible() -> bool {
 #[tauri::command]
 #[specta::specta]
 fn memory_size() -> u64 {
-    sysinfo::System::new_all().total_memory() / (1024 * 1024)
+    sysinfo::System::new_with_specifics(RefreshKind::new().with_memory()).total_memory()
+        / (1024 * 1024)
 }
 
 #[tauri::command]
