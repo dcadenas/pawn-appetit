@@ -16,29 +16,25 @@ import { useAtom } from "jotai";
 import { useCallback, useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { match } from "ts-pattern";
+import {
+  buildAppCommands,
+  commandsToMenuGroups,
+  type CommandMenuGroup as MenuGroup,
+} from "@/app/commands";
+import { buildSearchProviders } from "@/app/search";
 import type { Dirs } from "@/App";
 import AboutModal from "@/components/About";
 import { SideBar } from "@/components/Sidebar";
+import StatusBar from "@/components/StatusBar";
 import TopBar from "@/components/TopBar";
 import ImportModal from "@/features/boards/components/ImportModal";
+import { CUSTOM_EVENTS } from "@/features/boards/constants";
 import { useResponsiveLayout } from "@/hooks/useResponsiveLayout";
-import { activeTabAtom, tabsAtom } from "@/state/atoms";
+import { activeTabAtom, densityAtom, tabsAtom } from "@/state/atoms";
 import { keyMapAtom } from "@/state/keybindings";
 import { openFile } from "@/utils/files";
 import { formatHotkeyDisplay } from "@/utils/formatHotkey";
 import { createTab } from "@/utils/tabs";
-
-type MenuGroup = {
-  label: string;
-  options: MenuAction[];
-};
-
-type MenuAction = {
-  id?: string;
-  label: string;
-  shortcut?: string;
-  action?: () => void;
-};
 
 const INPUT_ELEMENT_TAGS = new Set(["INPUT", "TEXTAREA"]);
 const CLIPBOARD_OPERATIONS = {
@@ -114,6 +110,7 @@ async function createMenu(menuActions: MenuGroup[]): Promise<Menu> {
                   id: option.id,
                   text: option.label,
                   accelerator: option.shortcut,
+                  enabled: !option.disabled,
                   action: option.action,
                 });
               });
@@ -146,7 +143,8 @@ function RootLayout() {
   const { layout } = useResponsiveLayout();
 
   const [, setTabs] = useAtom(tabsAtom);
-  const [, setActiveTab] = useAtom(activeTabAtom);
+  const [activeTab, setActiveTab] = useAtom(activeTabAtom);
+  const [density] = useAtom(densityAtom);
   const [keyMap] = useAtom(keyMapAtom);
 
   const openNewFile = useCallback(async () => {
@@ -302,6 +300,30 @@ function RootLayout() {
     }
   }, []);
 
+  const handleCloseTab = useCallback(() => {
+    setTabs((prevTabs) => {
+      const activeIndex = prevTabs.findIndex((tab) => tab.value === activeTab);
+      if (activeIndex !== -1) {
+        const newTabs = prevTabs.filter((_, i) => i !== activeIndex);
+        if (newTabs.length > 0) {
+          const newActiveIndex = Math.min(activeIndex, newTabs.length - 1);
+          setActiveTab(newTabs[newActiveIndex].value);
+        } else {
+          setActiveTab(null);
+        }
+        return newTabs;
+      }
+      return prevTabs;
+    });
+  }, [activeTab, setTabs, setActiveTab]);
+
+  const handleCloseOtherTabs = useCallback(() => {
+    setTabs((prevTabs) => {
+      if (!activeTab) return prevTabs;
+      return prevTabs.filter((tab) => tab.value === activeTab);
+    });
+  }, [activeTab, setTabs]);
+
   const handleGlobalKeyDown = useCallback(
     (e: KeyboardEvent) => {
       const isMac = navigator.platform.toLowerCase().includes("mac");
@@ -384,7 +406,7 @@ function RootLayout() {
             navigate({ to: "/boards" });
             modals.openContextModal({
               modal: "importModal",
-              innerProps: {},
+              innerProps: { initialSource: "PGN" },
             });
           },
         ],
@@ -400,13 +422,14 @@ function RootLayout() {
           },
         ],
         [keyMap.OPEN_FILE.keys, openNewFile],
+        [keyMap.CLOSE_BOARD_TAB.keys, handleCloseTab],
         [keyMap.APP_RELOAD.keys, () => location.reload()],
         [keyMap.EXIT_APP.keys, () => exit(0)],
         [keyMap.OPEN_SETTINGS.keys, () => navigate({ to: "/settings" })],
         [keyMap.SHOW_KEYBINDINGS.keys, () => navigate({ to: "/settings/keyboard-shortcuts" })],
         [keyMap.TOGGLE_HELP.keys, () => navigate({ to: "/settings/keyboard-shortcuts" })],
       ] as HotkeyItem[],
-    [keyMap, createNewTab, navigate, t, setTabs, setActiveTab, openNewFile],
+    [keyMap, createNewTab, navigate, t, setTabs, setActiveTab, openNewFile, handleCloseTab],
   );
 
   useHotkeys(hotkeyBindings);
@@ -466,25 +489,6 @@ function RootLayout() {
     });
   }, [t]);
 
-  const handleCloseTab = useCallback(() => {
-    setTabs((prevTabs) => {
-      const activeIndex = prevTabs.findIndex(
-        (tab) => tab.value === prevTabs.find((t) => t.value)?.value,
-      );
-      if (activeIndex !== -1) {
-        const newTabs = prevTabs.filter((_, i) => i !== activeIndex);
-        if (newTabs.length > 0) {
-          const newActiveIndex = Math.min(activeIndex, newTabs.length - 1);
-          setActiveTab(newTabs[newActiveIndex].value);
-        } else {
-          setActiveTab(null);
-        }
-        return newTabs;
-      }
-      return prevTabs;
-    });
-  }, [setTabs, setActiveTab]);
-
   const handleCloseAllTabs = useCallback(() => {
     setTabs([]);
     setActiveTab(null);
@@ -508,15 +512,100 @@ function RootLayout() {
     }
   }, []);
 
-  const handleToggleFullScreen = useCallback(async () => {
-    try {
-      const webviewWindow = getCurrentWebviewWindow();
-      const isFullscreen = await webviewWindow.isFullscreen();
-      await webviewWindow.setFullscreen(!isFullscreen);
-    } catch (error) {
-      console.error("Failed to toggle fullscreen:", error);
-    }
+  const dispatchBoardEvent = useCallback((eventName: string) => {
+    window.dispatchEvent(new Event(eventName));
   }, []);
+
+  const appCommands = useMemo(
+    () =>
+      buildAppCommands({
+        navigate,
+        t,
+        keyMap,
+        hasActiveTab: Boolean(activeTab),
+        hasBoardTab: Boolean(activeTab),
+        engineRunning: false,
+        openImport: (source = "PGN") => {
+          navigate({ to: "/boards" });
+          modals.openContextModal({
+            modal: "importModal",
+            innerProps: { initialSource: source },
+          });
+        },
+        createNewTab,
+        createPlayTab: () => {
+          navigate({ to: "/boards" });
+          createTab({
+            tab: { name: "Play", type: "play" },
+            setTabs,
+            setActiveTab,
+          });
+        },
+        createAnalysisTab: () => {
+          navigate({ to: "/boards" });
+          createTab({
+            tab: { name: t("features.tabs.analysisBoard.title"), type: "analysis" },
+            setTabs,
+            setActiveTab,
+          });
+        },
+        createPuzzleTab: () => {
+          navigate({ to: "/boards" });
+          createTab({
+            tab: { name: t("features.tabs.puzzle.title"), type: "puzzles" },
+            setTabs,
+            setActiveTab,
+          });
+        },
+        closeCurrentTab: handleCloseTab,
+        closeOtherTabs: handleCloseOtherTabs,
+        saveCurrentGame: () => dispatchBoardEvent(CUSTOM_EVENTS.BOARD_SAVE),
+        copyPgn: () => dispatchBoardEvent(CUSTOM_EVENTS.BOARD_COPY_PGN),
+        copyFen: () => dispatchBoardEvent(CUSTOM_EVENTS.BOARD_COPY_FEN),
+        flipBoard: () => dispatchBoardEvent(CUSTOM_EVENTS.BOARD_FLIP),
+        clearBoardAnnotations: () => dispatchBoardEvent(CUSTOM_EVENTS.BOARD_CLEAR_ANNOTATIONS),
+        setupBoard: () => dispatchBoardEvent(CUSTOM_EVENTS.BOARD_SETUP_POSITION),
+        takeSnapshot: () => dispatchBoardEvent(CUSTOM_EVENTS.BOARD_SNAPSHOT),
+        toggleEngine: () => dispatchBoardEvent(CUSTOM_EVENTS.BOARD_TOGGLE_ENGINE),
+        stopEngine: () => dispatchBoardEvent(CUSTOM_EVENTS.BOARD_STOP_ENGINE),
+        resetWorkspaceLayout: () => {
+          window.dispatchEvent(new Event(CUSTOM_EVENTS.WORKSPACE_RESET_LAYOUT));
+        },
+      }),
+    [
+      navigate,
+      t,
+      keyMap,
+      activeTab,
+      createNewTab,
+      setTabs,
+      setActiveTab,
+      handleCloseTab,
+      handleCloseOtherTabs,
+      dispatchBoardEvent,
+    ],
+  );
+
+  const commandMenuGroups = useMemo(
+    () => commandsToMenuGroups(appCommands, formatHotkeyDisplay),
+    [appCommands],
+  );
+
+  const searchProviders = useMemo(
+    () =>
+      buildSearchProviders({
+        commands: appCommands,
+        navigate,
+        setTabs,
+        setActiveTab,
+      }),
+    [appCommands, navigate, setActiveTab, setTabs],
+  );
+
+  const commandMenuOptions = useCallback(
+    (label: string) => commandMenuGroups.find((group) => group.label === label)?.options ?? [],
+    [commandMenuGroups],
+  );
 
   const menuActions: MenuGroup[] = useMemo(
     () => [
@@ -553,12 +642,6 @@ function RootLayout() {
         label: t("features.menu.file"),
         options: [
           {
-            label: t("features.menu.newTab"),
-            id: "new_tab",
-            shortcut: formatHotkeyDisplay(keyMap.NEW_BOARD_TAB.keys),
-            action: createNewTab,
-          },
-          {
             label: t("features.menu.newPlayBoard"),
             id: "new_play_board",
             shortcut: formatHotkeyDisplay(keyMap.PLAY_BOARD.keys),
@@ -591,18 +674,7 @@ function RootLayout() {
             shortcut: formatHotkeyDisplay(keyMap.OPEN_FILE.keys),
             action: openNewFile,
           },
-          {
-            label: t("features.menu.importPgn"),
-            id: "import_pgn",
-            shortcut: formatHotkeyDisplay(keyMap.IMPORT_BOARD.keys),
-            action: () => {
-              navigate({ to: "/boards" });
-              modals.openContextModal({
-                modal: "importModal",
-                innerProps: {},
-              });
-            },
-          },
+          ...commandMenuOptions(t("features.menu.file")),
         ],
       },
       {
@@ -672,47 +744,7 @@ function RootLayout() {
       {
         label: t("features.menu.go"),
         options: [
-          {
-            label: t("features.menu.goToDashboard"),
-            id: "go_dashboard",
-            action: () => navigate({ to: "/" }),
-          },
-          {
-            label: t("features.menu.goToBoards"),
-            id: "go_boards",
-            action: () => navigate({ to: "/boards" }),
-          },
-          {
-            label: t("features.menu.goToAccounts"),
-            id: "go_accounts",
-            action: () => navigate({ to: "/accounts" }),
-          },
-          {
-            label: t("features.menu.goToFiles"),
-            id: "go_files",
-            action: () => navigate({ to: "/files" }),
-          },
-          {
-            label: t("features.menu.goToDatabases"),
-            id: "go_databases",
-            action: () => navigate({ to: "/databases" }),
-          },
-          {
-            label: t("features.menu.goToEngines"),
-            id: "go_engines",
-            action: () => navigate({ to: "/engines" }),
-          },
-          {
-            label: t("features.menu.goToTrain"),
-            id: "go_train",
-            action: () => navigate({ to: "/train" }),
-          },
-          { label: "divider" },
-          {
-            label: t("features.menu.goToSettings"),
-            id: "go_settings",
-            action: () => navigate({ to: "/settings" }),
-          },
+          ...commandMenuOptions(t("features.menu.go")),
           {
             label: t("features.menu.goToKeyboardShortcuts"),
             id: "go_keyboard_shortcuts",
@@ -735,11 +767,7 @@ function RootLayout() {
             action: handleToggleMaximize,
           },
           { label: "divider" },
-          {
-            label: t("features.menu.closeTab"),
-            id: "close_tab",
-            action: handleCloseTab,
-          },
+          ...commandMenuOptions(t("features.menu.window")),
           {
             label: t("features.menu.closeAllTabs"),
             id: "close_all_tabs",
@@ -781,7 +809,7 @@ function RootLayout() {
     [
       t,
       keyMap,
-      createNewTab,
+      commandMenuOptions,
       openNewFile,
       handleClearData,
       handleOpenLogs,
@@ -794,11 +822,9 @@ function RootLayout() {
       handleCopy,
       handlePaste,
       handleSelectAll,
-      handleCloseTab,
       handleCloseAllTabs,
       handleMinimizeWindow,
       handleToggleMaximize,
-      handleToggleFullScreen,
     ],
   );
 
@@ -850,18 +876,20 @@ function RootLayout() {
         styles={{
           main: {
             height: "100vh",
-            userSelect: "none",
           },
         }}
+        data-density={density}
       >
         <AppShell.Header>
-          <TopBar menuActions={menuActions} />
+          <TopBar menuActions={menuActions} commands={appCommands} searchProviders={searchProviders} />
         </AppShell.Header>
         <AppShell.Navbar>{layout.sidebar.position === "navbar" && <SideBar />}</AppShell.Navbar>
         <AppShell.Main style={{ display: "flex", flexDirection: "column" }}>
           <Outlet />
         </AppShell.Main>
-        <AppShell.Footer>{layout.sidebar.position === "footer" && <SideBar />}</AppShell.Footer>
+        <AppShell.Footer>
+          {layout.sidebar.position === "footer" ? <SideBar /> : <StatusBar />}
+        </AppShell.Footer>
       </AppShell>
     </ModalsProvider>
   );

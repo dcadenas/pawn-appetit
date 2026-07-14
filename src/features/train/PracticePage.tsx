@@ -2,7 +2,6 @@ import {
   Box,
   Center,
   Grid,
-  Group,
   Notification,
   Paper,
   Popover,
@@ -11,9 +10,10 @@ import {
   ThemeIcon,
   Transition,
 } from "@mantine/core";
-import { useHotkeys, useInterval } from "@mantine/hooks";
+import { useHotkeys } from "@mantine/hooks";
 import { IconCheck, IconSearch, IconX } from "@tabler/icons-react";
 import { useRouter } from "@tanstack/react-router";
+import { Route } from "@/routes/train/practice";
 import { useAtom } from "jotai";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -34,6 +34,7 @@ type FeedbackState = "success" | "failure" | null;
 export default function PracticePage() {
   const { t } = useTranslation();
   const { navigate } = useRouter();
+  const { category: categoryFromSearch } = Route.useSearch();
   const { userStats, setUserStats } = useUserStatsStore();
   const [, setTabs] = useAtom(tabsAtom);
   const [, setActiveTab] = useAtom(activeTabAtom);
@@ -69,7 +70,7 @@ export default function PracticePage() {
     setCurrentFen,
     updateExerciseFen,
     message,
-    playerMoveCount,
+    playerMoveCount: _playerMoveCount,
     resetCounter,
     handleCategorySelect,
     handleExerciseSelect,
@@ -84,20 +85,25 @@ export default function PracticePage() {
 
   useEffect(() => {
     if (!selectedCategory) {
+      const storedCategoryId = localStorage.getItem("pawn-appetit.training.selectedCategory");
+      const requestedCategoryId = categoryFromSearch ?? storedCategoryId;
       const active =
+        practices.find((p) => p.id === requestedCategoryId) ||
         practices.find((p) => {
           const done = userStats.completedPractice?.[p.id]?.length || 0;
           return done > 0 && done < p.exercises.length;
-        }) || practices[0];
+        }) ||
+        practices[0];
 
       if (active) {
+        localStorage.setItem("pawn-appetit.training.selectedCategory", active.id);
         handleCategorySelect(active);
         const done = userStats.completedPractice?.[active.id]?.length || 0;
         const exIdx = done < active.exercises.length ? done : 0;
         handleExerciseSelect(active.exercises[exIdx]);
       }
     }
-  }, [selectedCategory, handleCategorySelect, handleExerciseSelect, userStats]);
+  }, [selectedCategory, handleCategorySelect, handleExerciseSelect, userStats, categoryFromSearch]);
 
   useEffect(() => {
     if (selectedExercise) startTimer();

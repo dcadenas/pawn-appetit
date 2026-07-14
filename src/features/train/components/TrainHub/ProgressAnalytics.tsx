@@ -5,8 +5,9 @@ import { FC } from "react";
 interface ProgressAnalyticsProps {
   totalExercises: number;
   completedExercises: number;
-  accuracy: number;
-  totalTimeMinutes: number;
+  accuracy?: number | null;
+  totalTimeMinutes?: number | null;
+  effortLabel?: string | null;
 }
 
 export const ProgressAnalytics: FC<ProgressAnalyticsProps> = ({
@@ -14,6 +15,7 @@ export const ProgressAnalytics: FC<ProgressAnalyticsProps> = ({
   completedExercises,
   accuracy,
   totalTimeMinutes,
+  effortLabel,
 }) => {
   const completionPercent = totalExercises > 0 ? (completedExercises / totalExercises) * 100 : 0;
 
@@ -56,7 +58,7 @@ export const ProgressAnalytics: FC<ProgressAnalyticsProps> = ({
           </Group>
           <Group align="flex-end" gap="xs">
             <Text size="xl" fw={700} ff="monospace">
-              {accuracy}%
+              {accuracy == null ? "No data" : `${accuracy}%`}
             </Text>
           </Group>
         </Paper>
@@ -70,7 +72,7 @@ export const ProgressAnalytics: FC<ProgressAnalyticsProps> = ({
           </Group>
           <Group align="flex-end" gap="xs">
             <Text size="xl" fw={700} ff="monospace">
-              {totalTimeMinutes}m
+              {totalTimeMinutes == null ? "No data" : `${totalTimeMinutes}m`}
             </Text>
           </Group>
         </Paper>
@@ -84,7 +86,7 @@ export const ProgressAnalytics: FC<ProgressAnalyticsProps> = ({
           </Group>
           <Group align="flex-end" gap="xs">
             <Text size="xl" fw={700}>
-              High
+              {effortLabel ?? "No data"}
             </Text>
           </Group>
         </Paper>

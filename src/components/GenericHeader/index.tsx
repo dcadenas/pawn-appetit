@@ -126,8 +126,8 @@ export default function GenericHeader({
 
   return (
     <Stack gap="0">
-      <Group align="center" p="md" wrap="nowrap">
-        <Title order={2} style={{ flexShrink: 0 }}>
+      <Group align="center" px="md" pt="sm" pb="xs" wrap="nowrap">
+        <Title order={3} style={{ flexShrink: 0 }}>
           {title}
         </Title>
         {folder && <OpenFolderButton base="AppDir" folder={folder} />}
@@ -140,7 +140,7 @@ export default function GenericHeader({
             leftSection={<IconSearch size="1rem" />}
             value={query}
             onChange={(e) => setQuery(e.currentTarget.value)}
-            style={{ flex: 1, minWidth: 250, maxWidth: 250 }}
+            style={{ flex: "1 1 18rem", minWidth: "min(18rem, 100%)", maxWidth: "34rem" }}
             size="xs"
           />
           {filters}

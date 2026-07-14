@@ -1,8 +1,17 @@
 import type { MantineColor } from "@mantine/core";
-import { Grid, Stack } from "@mantine/core";
+import { Button, Card, Grid, Group, SimpleGrid, Stack, Text, ThemeIcon } from "@mantine/core";
 import { modals } from "@mantine/modals";
 import { notifications } from "@mantine/notifications";
-import { IconBolt, IconChess, IconClock, IconStopwatch } from "@tabler/icons-react";
+import {
+  IconBolt,
+  IconChartLine,
+  IconChess,
+  IconClock,
+  IconPlayerPlay,
+  IconPuzzle,
+  IconStopwatch,
+  IconTarget,
+} from "@tabler/icons-react";
 import { useNavigate } from "@tanstack/react-router";
 import { appDataDir, resolve } from "@tauri-apps/api/path";
 import { mkdir, writeTextFile } from "@tauri-apps/plugin-fs";
@@ -20,7 +29,6 @@ import { getMainLine, getPGN, parsePGN } from "@/utils/chess";
 import { type ChessComGame, fetchLastChessComGames } from "@/utils/chess.com/api";
 import { type DailyGoal, getDailyGoals } from "@/utils/dailyGoals";
 import type { LocalEngine } from "@/utils/engines";
-import { createFile } from "@/utils/files";
 import {
   deleteGameRecord,
   type GameRecord,
@@ -32,7 +40,7 @@ import { getPuzzleStats, getTodayPuzzleCount } from "@/utils/puzzleStreak";
 import { createTab, genID, type Tab } from "@/utils/tabs";
 import type { TreeState } from "@/utils/treeReducer";
 import { unwrap } from "@/utils/unwrap";
-import { type AnalyzeAllConfig, AnalyzeAllModal } from "./components/AnalyzeAllModal";
+import { AnalyzeAllModal } from "./components/AnalyzeAllModal";
 import { DailyGoalsCard } from "./components/DailyGoalsCard";
 import { GamesHistoryCard } from "./components/GamesHistoryCard";
 import { PuzzleStatsCard } from "./components/PuzzleStatsCard";
@@ -62,8 +70,8 @@ export default function DashboardPage() {
   const navigate = useNavigate();
   const { t } = useTranslation();
 
-  const [_tabs, setTabs] = useAtom(tabsAtom);
-  const [_activeTab, setActiveTab] = useAtom(activeTabAtom);
+  const [tabs, setTabs] = useAtom(tabsAtom);
+  const [, setActiveTab] = useAtom(activeTabAtom);
 
   const sessions = useAtomValue(sessionsAtom);
   const engines = useAtomValue(enginesAtom);
@@ -537,6 +545,83 @@ export default function DashboardPage() {
     },
   ];
 
+  const lastAnalysisTab = tabs.find((tab) => tab.type === "analysis");
+  const lastTrainingCategoryId = localStorage.getItem("pawn-appetit.training.selectedCategory");
+  const lastTrainingCategory =
+    practices.find((category) => category.id === lastTrainingCategoryId) ?? practices[0];
+
+  const continueActions = [
+    lastAnalysisTab
+      ? {
+          id: "continue-analysis",
+          icon: <IconChartLine size={18} />,
+          title: "Continue analysis",
+          description: lastAnalysisTab.name,
+          label: "Open",
+          onClick: () => {
+            setActiveTab(lastAnalysisTab.value);
+            navigate({ to: "/boards" });
+          },
+        }
+      : null,
+    recentGames[0]
+      ? {
+          id: "reopen-game",
+          icon: <IconPlayerPlay size={18} />,
+          title: "Reopen last game",
+          description: `${recentGames[0].white.name} - ${recentGames[0].black.name}`,
+          label: "Analyze",
+          onClick: () => {
+            const game = recentGames[0];
+            const headers = createLocalGameHeaders(game);
+            const pgn = game.pgn || createPGNFromMoves(game.moves, game.result, game.initialFen);
+            createTab({
+              tab: {
+                name: `${headers.white} - ${headers.black}`,
+                type: "analysis",
+              },
+              setTabs,
+              setActiveTab,
+              pgn,
+              headers,
+            });
+            navigate({ to: "/boards" });
+          },
+        }
+      : null,
+    lastTrainingCategory
+      ? {
+          id: "continue-training",
+          icon: <IconTarget size={18} />,
+          title: "Continue training",
+          description: lastTrainingCategory.title,
+          label: "Resume",
+          onClick: () => {
+            localStorage.setItem("pawn-appetit.training.selectedCategory", lastTrainingCategory.id);
+            navigate({ to: "/train/practice", search: { category: lastTrainingCategory.id } });
+          },
+        }
+      : null,
+    {
+      id: "continue-puzzles",
+      icon: <IconPuzzle size={18} />,
+      title: puzzleStats.currentStreak > 0 ? "Keep puzzle streak" : "Start puzzle training",
+      description:
+        puzzleStats.currentStreak > 0
+          ? `${puzzleStats.currentStreak} day streak`
+          : "No streak yet today",
+      label: "Start",
+      onClick: () => {
+        createTab({
+          tab: { name: t("features.tabs.puzzle.title"), type: "puzzles" },
+          setTabs,
+          setActiveTab,
+        });
+        navigate({ to: "/boards" });
+      },
+    },
+  ].filter((action): action is NonNullable<typeof action> => action !== null);
+
   return (
     <Stack p="md" gap="md">
       <WelcomeCard
@@ -550,6 +635,37 @@ export default function DashboardPage() {
           });
         }}
       />
+
+      <Stack gap="xs">
+        <Group justify="space-between">
+          <Text fw={700}>Continue</Text>
+          <Button variant="subtle" size="compact-sm" onClick={() => navigate({ to: "/boards" })}>
+            Open workbench
+          </Button>
+        </Group>
+        <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }} spacing="sm">
+          {continueActions.map((action) => (
+            <Card key={action.id} withBorder p="sm" radius="sm">
+              <Group wrap="nowrap" align="flex-start">
+                <ThemeIcon variant="light" size="md">
+                  {action.icon}
+                </ThemeIcon>
+                <Stack gap={2} style={{ flex: 1, minWidth: 0 }}>
+                  <Text fw={600} size="sm" truncate>
+                    {action.title}
+                  </Text>
+                  <Text size="xs" c="dimmed" truncate>
+                    {action.description}
+                  </Text>
+                </Stack>
+                <Button size="compact-xs" variant="light" onClick={action.onClick}>
+                  {action.label}
+                </Button>
+              </Group>
+            </Card>
+          ))}
+        </SimpleGrid>
+      </Stack>
 
       <Grid>
         <Grid.Col span={{ base: 12, sm: 12, md: 4, lg: 3, xl: 3 }}>

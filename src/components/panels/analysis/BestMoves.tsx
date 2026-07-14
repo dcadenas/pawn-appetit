@@ -120,7 +120,7 @@ function BestMovesComponent({
     for (const uci of moves) {
       const move = parseUci(uci);
       if (!move) {
-        console.log("Invalid move", uci);
+        // Ignore malformed engine output for this PV; the engine process can keep running.
         break;
       }
       pos.play(move);

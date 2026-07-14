@@ -1,9 +1,63 @@
 import { globalStyle } from "@vanilla-extract/css";
 import { vars } from "./theme";
 
-globalStyle("*", {
+globalStyle("button, [role='button'], .cg-wrap, .mosaic-window-toolbar", {
     userSelect: "none",
     WebkitUserSelect: "none",
+});
+
+globalStyle(
+    "input, textarea, [contenteditable='true'], pre, code, table, .mantine-Modal-root, .mantine-Drawer-root",
+    {
+        userSelect: "text",
+        WebkitUserSelect: "text",
+    },
+);
+
+globalStyle(":focus-visible", {
+    outline: "2px solid var(--mantine-primary-color-filled)",
+    outlineOffset: "2px",
+});
+
+globalStyle("[data-density='compact'] .mantine-Tabs-tab", {
+    paddingBlock: "0.35rem",
+    paddingInline: "0.55rem",
+});
+
+globalStyle("[data-density='compact'] .mantine-Button-root", {
+    minHeight: "1.75rem",
+});
+
+globalStyle("[data-density='compact'] .mantine-Input-input", {
+    minHeight: "1.75rem",
+});
+
+globalStyle("[data-density='compact'] .mantine-ActionIcon-root", {
+    minWidth: "1.75rem",
+    minHeight: "1.75rem",
+});
+
+globalStyle("[data-density='compact'] .mantine-Card-root", {
+    padding: "0.625rem",
+});
+
+globalStyle("[data-density='compact'] .mantine-Table-tr, [data-density='compact'] .mantine-DataTable-row", {
+    minHeight: "2rem",
+});
+
+globalStyle("[data-density='compact'] .mantine-DataTable-table th, [data-density='compact'] .mantine-DataTable-table td", {
+    paddingBlock: "0.35rem",
+});
+
+globalStyle("*", {
+    "@media": {
+        "(prefers-reduced-motion: reduce)": {
+            animationDuration: "0.01ms !important",
+            animationIterationCount: "1 !important",
+            scrollBehavior: "auto",
+            transitionDuration: "0.01ms !important",
+        },
+    },
 });
 
 globalStyle("html, body", {

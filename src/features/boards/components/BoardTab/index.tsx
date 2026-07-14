@@ -1,6 +1,13 @@
 import { ActionIcon, Button, Menu } from "@mantine/core";
 import { useClickOutside, useHotkeys, useToggle } from "@mantine/hooks";
-import { IconCopy, IconEdit, IconX } from "@tabler/icons-react";
+import {
+  IconChartLine,
+  IconChess,
+  IconCopy,
+  IconEdit,
+  IconPuzzle,
+  IconX,
+} from "@tabler/icons-react";
 import cx from "clsx";
 import { useEffect } from "react";
 import { ContentEditable } from "@/components/ContentEditable";
@@ -13,6 +20,8 @@ export function BoardTab({
   closeTab,
   renameTab,
   duplicateTab,
+  closeOtherTabs,
+  closeTabsToRight,
   selected,
 }: {
   tab: Tab;
@@ -20,6 +29,8 @@ export function BoardTab({
   closeTab: (v: string) => void;
   renameTab: (v: string, n: string) => void;
   duplicateTab: (v: string) => void;
+  closeOtherTabs: (v: string) => void;
+  closeTabsToRight: (v: string) => void;
   selected: boolean;
 }) {
   const [open, toggleOpen] = useToggle();
@@ -42,6 +53,15 @@ export function BoardTab({
     if (renaming) ref.current?.focus();
   }, [renaming, ref]);
 
+  const TypeIcon =
+    tab.type === "play"
+      ? IconChess
+      : tab.type === "analysis"
+        ? IconChartLine
+        : tab.type === "puzzles"
+          ? IconPuzzle
+          : IconCopy;
+
   return (
     <Menu opened={open} shadow="md" width={200} closeOnClickOutside>
       <Menu.Target>
@@ -50,6 +70,7 @@ export function BoardTab({
           className={cx(classes.tab, { [classes.selected]: selected })}
           variant="default"
           fw="normal"
+          leftSection={<TypeIcon size="0.95rem" stroke={1.6} />}
           rightSection={
             <ActionIcon
               component="div"
@@ -59,6 +80,7 @@ export function BoardTab({
                 e.stopPropagation();
               }}
               size="0.875rem"
+              aria-label="Close tab"
             >
               <IconX />
             </ActionIcon>
@@ -108,6 +130,20 @@ export function BoardTab({
           onClick={() => closeTab(tab.value)}
         >
           Close Tab
+        </Menu.Item>
+        <Menu.Item
+          color="red"
+          leftSection={<IconX size="0.875rem" />}
+          onClick={() => closeOtherTabs(tab.value)}
+        >
+          Close Other Tabs
+        </Menu.Item>
+        <Menu.Item
+          color="red"
+          leftSection={<IconX size="0.875rem" />}
+          onClick={() => closeTabsToRight(tab.value)}
+        >
+          Close Tabs to the Right
         </Menu.Item>
       </Menu.Dropdown>
     </Menu>

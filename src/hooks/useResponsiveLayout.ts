@@ -3,7 +3,7 @@ import { useMediaQuery } from "@mantine/hooks";
 import { type } from "@tauri-apps/plugin-os";
 import { useAtomValue } from "jotai";
 import { useMemo } from "react";
-import { nativeBarAtom } from "@/state/atoms";
+import { nativeBarAtom, sidebarCollapsedAtom } from "@/state/atoms";
 import { vars } from "@/styles/theme";
 
 // Platform types
@@ -96,6 +96,7 @@ export const useResponsiveLayout: () => {
 } = () => {
     const platform = getPlatform();
     const isNative = useAtomValue(nativeBarAtom);
+    const sidebarCollapsed = useAtomValue(sidebarCollapsedAtom);
     const smallScreenMax = useMediaQuery(`(width < ${vars.breakpoints.sm})`);
     const largeScreenMax = useMediaQuery(`(width < ${vars.breakpoints.lg})`);
     const extraLargeScreenMax = useMediaQuery(`(width < ${vars.breakpoints.xl})`);
@@ -128,13 +129,13 @@ export const useResponsiveLayout: () => {
 
         // AppShell states
         const isHeaderCollapsed = menuBarMode === "disabled";
-        const isFooterCollapsed = sideBarPosition !== "footer";
+        const isFooterCollapsed = false;
         const isNavbarCollapsed = sideBarPosition !== "navbar";
 
         // Layout dimensions
         const headerHeight = isHeaderCollapsed ? "0rem" : "2.3rem";
-        const navbarWidth = isNavbarCollapsed ? "0rem" : "3rem";
-        const footerHeight = isFooterCollapsed ? "0rem" : isMobile ? "4rem" : "3rem";
+        const navbarWidth = isNavbarCollapsed ? "0rem" : sidebarCollapsed ? "3.25rem" : "13rem";
+        const footerHeight = sideBarPosition === "footer" ? (isMobile ? "4rem" : "3rem") : "1.5rem";
         const marginTop = isMobile ? "3rem" : "0rem";
 
         // Calculated dimensions
@@ -228,5 +229,5 @@ export const useResponsiveLayout: () => {
             mainContentHeight,
             performanceMetrics,
         };
-    }, [platform, isNative, smallScreenMax, extraLargeScreenMax, largeScreenMax]);
+    }, [platform, isNative, sidebarCollapsed, smallScreenMax, extraLargeScreenMax, largeScreenMax]);
 };

@@ -43,34 +43,14 @@ function ResponsiveAnalysisPanels({
 }: ResponsiveAnalysisPanelsProps) {
   const { t } = useTranslation();
   const { layout } = useResponsiveLayout();
-  const [isInitializing, setIsInitializing] = useState(true);
+  const [isInitializing, setIsInitializing] = useState(false);
   const [initializationError, setInitializationError] = useState<Error | null>(null);
   const [isCollapsed, toggleCollapsed] = useToggle([false, true]);
-
-  // Handle analysis panels initialization
-  useEffect(() => {
-    const initializePanels = async () => {
-      try {
-        setIsInitializing(true);
-        setInitializationError(null);
-
-        // Simulate initialization time for smooth UX
-        await new Promise((resolve) => setTimeout(resolve, 50));
-
-        setIsInitializing(false);
-      } catch (error) {
-        setInitializationError(error as Error);
-        setIsInitializing(false);
-      }
-    };
-
-    initializePanels();
-  }, []);
 
   // Error handling for analysis panels initialization
   const handleRetry = useCallback(() => {
     setInitializationError(null);
-    setIsInitializing(true);
+    setIsInitializing(false);
     onRetry?.();
   }, [onRetry]);
 

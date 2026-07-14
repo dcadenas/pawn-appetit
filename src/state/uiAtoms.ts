@@ -147,3 +147,9 @@ const pgnOptionsFamily = atomFamily((tab: string) =>
     }),
 );
 export const currentPgnOptionsAtom = tabValue(pgnOptionsFamily);
+
+export const sidebarCollapsedAtom = atomWithStorage("ui.sidebar.collapsed", true);
+export const densityAtom = atomWithStorage<"comfortable" | "compact">(
+    "ui.density",
+    "comfortable",
+);

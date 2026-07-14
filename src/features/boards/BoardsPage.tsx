@@ -3,7 +3,7 @@ import { ActionIcon, Box, Group, ScrollArea, Tabs } from "@mantine/core";
 import { IconPlus } from "@tabler/icons-react";
 import { useAtom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { Mosaic, type MosaicNode } from "react-mosaic-component";
 import { match } from "ts-pattern";
@@ -30,10 +30,13 @@ import {
   DROPPABLE_IDS,
   MAX_TABS,
   MOSAIC_PANE_CONSTRAINTS,
+  normalizeMosaicLayout,
   REPORT_ID_PREFIX,
   SCROLL_AREA_CONFIG,
   STORAGE_KEYS,
+  TRAINING_MOSAIC_LAYOUT,
   type ViewId,
+  type WorkspaceMode,
 } from "./constants";
 import { useTabManagement } from "./hooks/useTabManagement";
 
@@ -68,6 +71,26 @@ export default function BoardsPage() {
       setActiveTab,
     });
   }, [canCreateNewTab, showTabLimitNotification, t, setTabs, setActiveTab]);
+
+  const closeOtherTabs = useCallback(
+    (tabId: string) => {
+      setTabs((prev) => prev.filter((tab) => tab.value === tabId));
+      setActiveTab(tabId);
+    },
+    [setActiveTab, setTabs],
+  );
+
+  const closeTabsToRight = useCallback(
+    (tabId: string) => {
+      setTabs((prev) => {
+        const index = prev.findIndex((tab) => tab.value === tabId);
+        if (index === -1) return prev;
+        return prev.slice(0, index + 1);
+      });
+      setActiveTab(tabId);
+    },
+    [setActiveTab, setTabs],
+  );
 
   return (
     <DragDropContext
@@ -131,6 +154,8 @@ export default function BoardsPage() {
                             closeTab={closeTab}
                             renameTab={renameTab}
                             duplicateTab={duplicateTab}
+                            closeOtherTabs={closeOtherTabs}
+                            closeTabsToRight={closeTabsToRight}
                             selected={activeTab === tab.value}
                           />
                         </div>
@@ -171,16 +196,31 @@ export default function BoardsPage() {
   );
 }
 
-interface WindowsState {
-  currentNode: MosaicNode<ViewId> | null;
+type WorkspaceLayouts = Record<WorkspaceMode, MosaicNode<ViewId> | null>;
+type DefaultWorkspaceLayouts = Record<WorkspaceMode, MosaicNode<ViewId>>;
+
+const defaultWorkspaceLayouts: DefaultWorkspaceLayouts = {
+  analysis: DEFAULT_MOSAIC_LAYOUT,
+  opening: DEFAULT_MOSAIC_LAYOUT,
+  training: TRAINING_MOSAIC_LAYOUT,
+  database: DEFAULT_MOSAIC_LAYOUT,
+  play: DEFAULT_MOSAIC_LAYOUT,
+};
+
+const workspaceLayoutsAtom = atomWithStorage<WorkspaceLayouts>(
+  STORAGE_KEYS.WORKSPACE_LAYOUTS,
+  defaultWorkspaceLayouts,
+);
+
+function getWorkspaceMode(tab: Tab): WorkspaceMode {
+  if (tab.type === "play") return "play";
+  if (tab.type === "puzzles") return "training";
+  if (tab.source?.type === "file" && tab.source.metadata?.type === "repertoire") return "opening";
+  return "analysis";
 }
 
-const windowsStateAtom = atomWithStorage<WindowsState>(STORAGE_KEYS.WINDOWS_STATE, {
-  currentNode: DEFAULT_MOSAIC_LAYOUT,
-});
-
 const TabSwitch = function TabSwitch({ tab }: { tab: Tab }) {
-  const [windowsState, setWindowsState] = useAtom(windowsStateAtom);
+  const [workspaceLayouts, setWorkspaceLayouts] = useAtom(workspaceLayoutsAtom);
 
   const { layout } = useResponsiveLayout();
   const isMobileLayout = layout.chessBoard.layoutType === "mobile";
@@ -192,26 +232,53 @@ const TabSwitch = function TabSwitch({ tab }: { tab: Tab }) {
     }),
     [],
   );
+  const workspaceMode = getWorkspaceMode(tab);
+  const currentLayout = useMemo(
+    () =>
+      normalizeMosaicLayout(
+        workspaceLayouts[workspaceMode],
+        defaultWorkspaceLayouts[workspaceMode],
+      ),
+    [workspaceLayouts, workspaceMode],
+  );
 
   const handleMosaicChange = useCallback(
     (currentNode: MosaicNode<ViewId> | null) => {
       if (currentNode && typeof currentNode === "object" && "direction" in currentNode) {
         if (currentNode.direction === "row") {
-          const constrainedPercentage = constrainSplitPercentage(currentNode.splitPercentage);
+          const splitPercentage = currentNode.splitPercentages?.[0];
+          const constrainedPercentage = constrainSplitPercentage(splitPercentage);
 
-          if (currentNode.splitPercentage !== constrainedPercentage) {
+          if (splitPercentage !== constrainedPercentage) {
             currentNode = {
               ...currentNode,
-              splitPercentage: constrainedPercentage,
+              splitPercentages: [constrainedPercentage, 100 - constrainedPercentage],
             };
           }
         }
       }
 
-      setWindowsState({ currentNode });
+      setWorkspaceLayouts((prev) => ({
+        ...defaultWorkspaceLayouts,
+        ...prev,
+        [workspaceMode]: currentNode,
+      }));
     },
-    [setWindowsState],
+    [setWorkspaceLayouts, workspaceMode],
   );
+
+  useEffect(() => {
+    const resetLayout = () => {
+      setWorkspaceLayouts((prev) => ({
+        ...defaultWorkspaceLayouts,
+        ...prev,
+        [workspaceMode]: defaultWorkspaceLayouts[workspaceMode],
+      }));
+    };
+
+    window.addEventListener(CUSTOM_EVENTS.WORKSPACE_RESET_LAYOUT, resetLayout);
+    return () => window.removeEventListener(CUSTOM_EVENTS.WORKSPACE_RESET_LAYOUT, resetLayout);
+  }, [setWorkspaceLayouts, workspaceMode]);
 
   return match(tab.type)
     .with("new", () => <NewTab id={tab.value} />)
@@ -220,7 +287,7 @@ const TabSwitch = function TabSwitch({ tab }: { tab: Tab }) {
         {!isMobileLayout && (
           <Mosaic<ViewId>
             renderTile={(id) => fullLayout[id]}
-            value={windowsState.currentNode}
+            value={currentLayout}
             onChange={handleMosaicChange}
             resize={resizeOptions}
           />
@@ -238,7 +305,7 @@ const TabSwitch = function TabSwitch({ tab }: { tab: Tab }) {
           {!isMobileLayout && (
             <Mosaic<ViewId>
               renderTile={(id) => fullLayout[id]}
-              value={windowsState.currentNode}
+              value={currentLayout}
               onChange={handleMosaicChange}
               resize={resizeOptions}
             />
@@ -252,7 +319,7 @@ const TabSwitch = function TabSwitch({ tab }: { tab: Tab }) {
       <TreeStateProvider id={tab.value}>
         <Mosaic<ViewId>
           renderTile={(id) => fullLayout[id]}
-          value={windowsState.currentNode}
+          value={currentLayout}
           onChange={handleMosaicChange}
           resize={resizeOptions}
         />

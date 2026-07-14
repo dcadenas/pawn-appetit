@@ -11,24 +11,25 @@ import {
   useMantineColorScheme,
 } from "@mantine/core";
 import { useColorScheme } from "@mantine/hooks";
-import {
-  Spotlight,
-  type SpotlightActionData,
-  type SpotlightActionGroupData,
-  spotlight,
-} from "@mantine/spotlight";
-import { IconSearch, IconSettings } from "@tabler/icons-react";
-import { useNavigate } from "@tanstack/react-router";
+import { Spotlight, spotlight } from "@mantine/spotlight";
+import { IconSearch } from "@tabler/icons-react";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { platform } from "@tauri-apps/plugin-os";
 import { useAtom } from "jotai";
-import { type JSX, type SVGProps, useState } from "react";
+import { type JSX, type SVGProps, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import type { AppCommand } from "@/app/commands";
+import { commandsToSpotlightActions } from "@/app/commands";
+import {
+  searchAll,
+  searchResultsToSpotlightActions,
+  type SearchProvider,
+  type SearchResult,
+} from "@/app/search";
 import { useResponsiveLayout } from "@/hooks/useResponsiveLayout";
 import { keyMapAtom } from "@/state/keybindings";
 import { env } from "@/utils/detectEnvironment";
 import { splitHotkeyDisplay } from "@/utils/formatHotkey";
-import { linksdata } from "./Sidebar";
 import * as classes from "./TopBar.css";
 
 const appWindow = env.isDesktop() ? getCurrentWebviewWindow() : null;
@@ -36,6 +37,7 @@ const appWindow = env.isDesktop() ? getCurrentWebviewWindow() : null;
 type MenuAction = {
   label: string;
   shortcut?: string;
+  disabled?: boolean;
   action?: () => void;
 };
 
@@ -115,56 +117,50 @@ const Icons = {
   ),
 };
 
-function getActions(
-  navigate: ReturnType<typeof useNavigate>,
-  t: (key: string) => string,
-): (SpotlightActionGroupData | SpotlightActionData)[] {
-  return [
-    {
-      group: "Pages",
-      actions: linksdata.map((link) => {
-        const label = t(`features.sidebar.${link.label}`);
-
-        return {
-          id: link.label,
-          label,
-          description: `Go to ${label} page`,
-          onClick: () => navigate({ to: link.url }),
-          leftSection: <link.icon size={24} stroke={1.5} />,
-        };
-      }),
-    },
-    {
-      group: "Settings",
-      actions: [
-        {
-          id: "keybindings",
-          label: t("features.sidebar.keyboardShortcuts"),
-          description: `Open ${t("features.sidebar.keyboardShortcuts")} page`,
-          onClick: () => navigate({ to: "/settings/keyboard-shortcuts" }),
-          leftSection: <IconSettings size={24} stroke={1.5} />,
-        },
-        {
-          id: "settings",
-          label: t("features.sidebar.settings"),
-          description: `Open ${t("features.sidebar.settings")} page`,
-          onClick: () => navigate({ to: "/settings" }),
-          leftSection: <IconSettings size={24} stroke={1.5} />,
-        },
-      ],
-    },
-  ];
-}
-
-function TopBar({ menuActions }: { menuActions: MenuGroup[] }) {
-  const navigate = useNavigate();
+function TopBar({
+  menuActions,
+  commands,
+  searchProviders = [],
+}: {
+  menuActions: MenuGroup[];
+  commands: AppCommand[];
+  searchProviders?: SearchProvider[];
+}) {
   const { t } = useTranslation();
   const { colorScheme } = useMantineColorScheme();
   const osColorScheme = useColorScheme();
   const { layout } = useResponsiveLayout();
 
   const [maximized, setMaximized] = useState(true);
+  const [spotlightQuery, setSpotlightQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [keyMap] = useAtom(keyMapAtom);
+
+  useEffect(() => {
+    let canceled = false;
+
+    const timeout = window.setTimeout(async () => {
+      if (!spotlightQuery.trim()) {
+        setSearchResults([]);
+        return;
+      }
+
+      const results = await searchAll(spotlightQuery, searchProviders);
+      if (!canceled) {
+        setSearchResults(results);
+      }
+    }, 150);
+
+    return () => {
+      canceled = true;
+      window.clearTimeout(timeout);
+    };
+  }, [searchProviders, spotlightQuery]);
+
+  const spotlightActions = useMemo(
+    () => [...commandsToSpotlightActions(commands), ...searchResultsToSpotlightActions(searchResults)],
+    [commands, searchResults],
+  );
 
   return (
     <Group h="100%">
@@ -195,6 +191,7 @@ function TopBar({ menuActions }: { menuActions: MenuGroup[] }) {
                           : "dark"
                       }
                       size="compact-md"
+                      aria-label={action.label}
                     >
                       {action.label}
                     </UnstyledButton>
@@ -214,6 +211,7 @@ function TopBar({ menuActions }: { menuActions: MenuGroup[] }) {
                             )
                           }
                           onClick={option.action}
+                          disabled={option.disabled}
                         >
                           {option.label}
                         </Menu.Item>
@@ -245,6 +243,7 @@ function TopBar({ menuActions }: { menuActions: MenuGroup[] }) {
               "1px solid light-dark(var(--mantine-color-gray-3), var(--mantine-color-dark-4))",
             borderRadius: "4px",
           }}
+          aria-label={t("features.menu.commandPalette")}
         >
           <Group w="100%">
             <IconSearch size={14} stroke={1.5} color="var(--mantine-color-dimmed)" />
@@ -266,7 +265,9 @@ function TopBar({ menuActions }: { menuActions: MenuGroup[] }) {
           </Group>
         </UnstyledButton>
         <Spotlight
-          actions={getActions(navigate, t)}
+          actions={spotlightActions}
+          query={spotlightQuery}
+          onQueryChange={setSpotlightQuery}
           shortcut={keyMap.SPOTLIGHT_SEARCH.keys}
           nothingFound="Nothing found..."
           highlightQuery
@@ -286,6 +287,7 @@ function TopBar({ menuActions }: { menuActions: MenuGroup[] }) {
               radius="lg"
               onClick={() => appWindow?.minimize()}
               className={classes.icon}
+              aria-label="Minimize window"
             >
               <Icons.minimizeWin />
             </ActionIcon>
@@ -304,6 +306,7 @@ function TopBar({ menuActions }: { menuActions: MenuGroup[] }) {
                 setMaximized((prev) => !prev);
               }}
               className={classes.icon}
+              aria-label="Maximize window"
             >
               {maximized ? <Icons.maximizeRestoreWin /> : <Icons.maximizeWin />}
             </ActionIcon>
@@ -313,6 +316,7 @@ function TopBar({ menuActions }: { menuActions: MenuGroup[] }) {
               radius="lg"
               onClick={() => appWindow?.close()}
               className={classes.icon}
+              aria-label="Close window"
             >
               <Icons.closeWin />
             </ActionIcon>

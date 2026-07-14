@@ -1586,7 +1586,7 @@ function BoardGame() {
         </Box>
       ) : (
         <>
-          <Portal target="#left" style={{ height: "100%" }}>
+          <Portal target="#board" style={{ height: "100%" }}>
             <ResponsiveBoard
               dirty={false}
               editingMode={false}
@@ -1610,7 +1610,7 @@ function BoardGame() {
               startGameDisabled={error !== null}
             />
           </Portal>
-          <Portal target="#topRight" style={{ height: "100%", overflow: "hidden" }}>
+          <Portal target="#engine" style={{ height: "100%", overflow: "hidden" }}>
             <Paper withBorder shadow="sm" p="md" h="100%">
               {gameState === "settingUp" && (
                 <ScrollArea h="100%" offsetScrollbars>

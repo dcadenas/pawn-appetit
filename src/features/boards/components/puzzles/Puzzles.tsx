@@ -155,7 +155,7 @@ function Puzzles({ id }: { id: string }) {
 
   return (
     <>
-      <Portal target="#left" style={{ height: "100%" }}>
+      <Portal target="#board" style={{ height: "100%" }}>
         <PuzzleBoard
           key={currentPuzzle}
           puzzles={puzzles}
@@ -167,7 +167,7 @@ function Puzzles({ id }: { id: string }) {
         />
       </Portal>
 
-      <Portal target="#topRight" style={{ height: "100%" }}>
+      <Portal target="#training" style={{ height: "100%" }}>
         <Paper h="100%" withBorder p="md">
           <PuzzleSettings
             puzzleDbs={puzzleDbs}
@@ -207,7 +207,7 @@ function Puzzles({ id }: { id: string }) {
         </Paper>
       </Portal>
 
-      <Portal target="#bottomRight" style={{ height: "100%" }}>
+      <Portal target="#moves" style={{ height: "100%" }}>
         <Stack h="100%" gap="xs">
           <Paper withBorder p="md" mih="5rem">
             <ScrollArea h="100%" offsetScrollbars>

@@ -1,5 +1,5 @@
 import { Portal, Stack } from "@mantine/core";
-import React, { memo, type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import React, { memo, type ReactNode, useCallback, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import GameNotation from "@/components/GameNotation";
 import MoveControls from "@/components/MoveControls";
@@ -28,33 +28,13 @@ function GameNotationWrapper({
 }: GameNotationWrapperProps) {
   const { t } = useTranslation();
   const { layout } = useResponsiveLayout();
-  const [isInitializing, setIsInitializing] = useState(true);
+  const [isInitializing, setIsInitializing] = useState(false);
   const [initializationError, setInitializationError] = useState<Error | null>(null);
-
-  // Handle analysis panel initialization
-  useEffect(() => {
-    const initializeAnalysis = async () => {
-      try {
-        setIsInitializing(true);
-        setInitializationError(null);
-
-        // Simulate initialization time for smooth UX
-        await new Promise((resolve) => setTimeout(resolve, 50));
-
-        setIsInitializing(false);
-      } catch (error) {
-        setInitializationError(error as Error);
-        setIsInitializing(false);
-      }
-    };
-
-    initializeAnalysis();
-  }, []);
 
   // Error handling for analysis panel initialization
   const handleRetry = useCallback(() => {
     setInitializationError(null);
-    setIsInitializing(true);
+    setIsInitializing(false);
     onRetry?.();
   }, [onRetry]);
 
@@ -64,7 +44,7 @@ function GameNotationWrapper({
 
     return {
       isNotationUnderBoard,
-      portalTarget: isNotationUnderBoard ? "#bottom" : "#bottomRight",
+      portalTarget: isNotationUnderBoard ? "#bottom" : "#moves",
       stackDirection: isNotationUnderBoard ? ("column" as const) : ("column" as const),
       gap: isNotationUnderBoard ? "md" : "xs",
     };

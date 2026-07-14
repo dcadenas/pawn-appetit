@@ -1,7 +1,6 @@
-import { Box, Group, SegmentedControl, Stack, Alert, Text, ActionIcon, Grid } from "@mantine/core";
+import { Box, Group, SegmentedControl, Stack, Alert, Text, Grid } from "@mantine/core";
 import { IconInfoCircle, IconLayoutGrid, IconList } from "@tabler/icons-react";
 import { useNavigate } from "@tanstack/react-router";
-import { useTranslation } from "react-i18next";
 import { useState } from "react";
 import { useUserStatsStore } from "@/state/userStatsStore";
 import { practices } from "./constants/practices";
@@ -11,13 +10,11 @@ import { ProgressAnalytics } from "./components/TrainHub/ProgressAnalytics";
 
 export default function TrainPage() {
   const navigate = useNavigate();
-  const { t } = useTranslation();
   const userStats = useUserStatsStore((state) => state.userStats);
   const [viewMode, setViewMode] = useState<"grid" | "table">("grid");
 
   let totalExercises = 0;
   let completedExercises = 0;
-  let totalTimeSeconds = 0;
 
   const statsMap: Record<string, { completed: number; total: number; nextExerciseTitle?: string }> =
     {};
@@ -29,8 +26,6 @@ export default function TrainPage() {
     totalExercises += total;
     completedExercises += completedCount;
 
-    totalTimeSeconds += completedCount * 120;
-
     let nextExerciseTitle;
     if (completedCount < total) {
       nextExerciseTitle = category.exercises[completedCount].title;
@@ -39,11 +34,9 @@ export default function TrainPage() {
     statsMap[category.id] = { completed: completedCount, total, nextExerciseTitle };
   });
 
-  const accuracy = 85;
-  const totalTimeMinutes = Math.floor(totalTimeSeconds / 60);
-
   const handleCategorySelect = (categoryId: string) => {
-    navigate({ to: "/train/practice" });
+    localStorage.setItem("pawn-appetit.training.selectedCategory", categoryId);
+    navigate({ to: "/train/practice", search: { category: categoryId } });
   };
 
   return (
@@ -51,8 +44,9 @@ export default function TrainPage() {
       <ProgressAnalytics
         totalExercises={totalExercises}
         completedExercises={completedExercises}
-        accuracy={accuracy}
-        totalTimeMinutes={totalTimeMinutes}
+        accuracy={null}
+        totalTimeMinutes={null}
+        effortLabel={null}
       />
 
       <Stack gap="md" mt="lg">

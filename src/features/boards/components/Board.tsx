@@ -1,8 +1,9 @@
 import type { DrawShape } from "@lichess-org/chessground/draw";
 import type { Piece } from "@lichess-org/chessground/types";
-import { Box, Group, Text, useMantineTheme } from "@mantine/core";
+import { Box, Group, Text } from "@mantine/core";
 import { useHotkeys } from "@mantine/hooks";
 import { notifications } from "@mantine/notifications";
+import { IconCamera, IconCopy, IconEraser, IconSwitchVertical, IconTool } from "@tabler/icons-react";
 import { save } from "@tauri-apps/plugin-dialog";
 import { writeFile } from "@tauri-apps/plugin-fs";
 import { makeSquare, type NormalMove, parseSquare, parseUci, type SquareName } from "chessops";
@@ -10,6 +11,7 @@ import { chessgroundDests, chessgroundMove } from "chessops/compat";
 import { makeSan } from "chessops/san";
 import domtoimage from "dom-to-image";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
+import { useContextMenu } from "mantine-contextmenu";
 import { memo, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { match } from "ts-pattern";
@@ -55,6 +57,35 @@ import PromotionModal from "./PromotionModal";
 const LARGE_BRUSH = 11;
 const MEDIUM_BRUSH = 7.5;
 const SMALL_BRUSH = 4;
+
+export async function saveBoardSnapshot(boardRef: React.MutableRefObject<HTMLDivElement | null>) {
+  const ref = boardRef.current;
+  if (ref == null) return;
+
+  // We must get the first children three levels below, as it has the right dimensions.
+  const refChildNode = ref.children[0]?.children[0]?.children[0] as HTMLElement | undefined;
+  if (refChildNode == null) return;
+
+  const blob = await domtoimage.toBlob(refChildNode);
+  if (blob == null) return;
+
+  const documentsDirPath = await getDocumentDir();
+  const filePath = await save({
+    title: "Save board snapshot",
+    defaultPath: documentsDirPath,
+    filters: [
+      {
+        name: "Png image",
+        extensions: ["png"],
+      },
+    ],
+  });
+
+  if (filePath == null) return;
+
+  const arrayBuffer = await blob.arrayBuffer();
+  await writeFile(filePath, new Uint8Array(arrayBuffer));
+}
 
 interface ChessboardProps {
   dirty: boolean;
@@ -152,6 +183,7 @@ function Board({
   const storeClearShapes = useStore(store, (s) => s.clearShapes);
   const setShapes = useStore(store, (s) => s.setShapes);
   const setFen = useStore(store, (s) => s.setFen);
+  const { showContextMenu } = useContextMenu();
 
   const [pos, error] = positionFromFen(currentNode.fen);
 
@@ -184,32 +216,17 @@ function Board({
     });
 
   const localTakeSnapshot = async () => {
-    const ref = boardRef?.current;
-    if (ref == null) return;
-
-    // We must get the first children three levels below, as it has the right dimensions.
-    const refChildNode = ref.children[0].children[0].children[0] as HTMLElement;
-    if (refChildNode == null) return;
-
-    domtoimage.toBlob(refChildNode).then(async (blob) => {
-      if (blob == null) return;
-      const documentsDirPath: string = await getDocumentDir();
-
-      const filePath = await save({
-        title: "Save board snapshot",
-        defaultPath: documentsDirPath,
-        filters: [
-          {
-            name: "Png image",
-            extensions: ["png"],
-          },
-        ],
-      });
-      const arrayBuffer = await blob.arrayBuffer();
-      if (filePath == null) return;
-      await writeFile(filePath, new Uint8Array(arrayBuffer));
-    });
+    await saveBoardSnapshot(boardRef);
   };
+
+  const copyCurrentFen = useCallback(async () => {
+    await navigator.clipboard.writeText(currentNode.fen);
+    notifications.show({
+      title: t("keybindings.copyFen"),
+      message: t("Copied FEN to clipboard"),
+      color: "green",
+    });
+  }, [currentNode.fen, t]);
 
   const keyMap = useAtomValue(keyMapAtom);
   useHotkeys([
@@ -366,18 +383,6 @@ function Board({
         }
       }
     }
-
-    console.log({
-      totalEngines: arrows.size,
-      enabledEngines: Object.keys(engineLines).length,
-      engineLines,
-      finalShapes: shapes.map((shape) => ({
-        from: shape.orig,
-        to: shape.dest,
-        color: shape.brush,
-        lineWidth: shape.modifiers?.lineWidth,
-      })),
-    });
   }
 
   if (currentNode.shapes.length > 0) {
@@ -417,7 +422,6 @@ function Board({
             .exhaustive();
   }, [practiceLock, editingMode, movable, turn]);
 
-  const theme = useMantineTheme();
   const annotationColor = annotationColors[currentNode.annotations[0]] || "#6B7280";
   // Use the hex color directly for both light and dark variants
   const lightColor = annotationColor;
@@ -554,9 +558,42 @@ function Board({
             className={`${chessboard} ${isBlindfold ? blindfold : ""}`}
             ref={boardRef}
             onClick={() => {
-              (eraseDrawablesOnClick ?? storeEraseDrawablesOnClick) &&
+              if (eraseDrawablesOnClick ?? storeEraseDrawablesOnClick) {
                 (clearShapes ?? storeClearShapes)();
+              }
             }}
+            onContextMenu={showContextMenu([
+              {
+                key: "copy-fen",
+                icon: <IconCopy size={16} />,
+                title: t("keybindings.copyFen"),
+                onClick: copyCurrentFen,
+              },
+              {
+                key: "flip-board",
+                icon: <IconSwitchVertical size={16} />,
+                title: t("keybindings.flipBoard"),
+                onClick: toggleOrientation ?? localToggleOrientation,
+              },
+              {
+                key: "clear-annotations",
+                icon: <IconEraser size={16} />,
+                title: t("features.board.actions.clearDrawings"),
+                onClick: clearShapes ?? storeClearShapes,
+              },
+              {
+                key: "setup-position",
+                icon: <IconTool size={16} />,
+                title: t("keybindings.setupPosition"),
+                onClick: toggleEditingMode,
+              },
+              {
+                key: "snapshot",
+                icon: <IconCamera size={16} />,
+                title: t("features.board.actions.takeSnapshot"),
+                onClick: takeSnapshot ?? localTakeSnapshot,
+              },
+            ])}
             onWheel={(e) => {
               if (enableBoardScroll) {
                 if (e.deltaY > 0) {

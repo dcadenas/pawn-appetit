@@ -36,6 +36,7 @@ import {
   autoPromoteAtom,
   autoSaveAtom,
   blindfoldAtom,
+  densityAtom,
   enableBoardScrollAtom,
   eraseDrawablesOnClickAtom,
   forcedEnPassantAtom,
@@ -99,6 +100,7 @@ export default function Page() {
   const [moveNotationType, setMoveNotationType] = useAtom(moveNotationTypeAtom);
   const [coordinatesMode, setCoordinatesMode] = useAtom(showCoordinatesAtom);
   const [practiceAnimationSpeed, setPracticeAnimationSpeed] = useAtom(practiceAnimationSpeedAtom);
+  const [density, setDensity] = useAtom(densityAtom);
   const [dateFormatMode, setDateFormatMode] = useState(
     localStorage.getItem("dateFormatMode") || "intl",
   );
@@ -610,6 +612,40 @@ export default function Page() {
         ),
       },
       {
+        id: "density",
+        title: t("settings.appearance.density", "Density"),
+        description: t(
+          "settings.appearance.densityDesc",
+          "Adjust desktop spacing and control density.",
+        ),
+        tab: "appearance",
+        component: (
+          <Group justify="space-between" wrap="nowrap" gap="xl" className={classes.item}>
+            <div>
+              <Text>{t("settings.appearance.density", "Density")}</Text>
+              <Text size="xs" c="dimmed">
+                {t(
+                  "settings.appearance.densityDesc",
+                  "Adjust desktop spacing and control density.",
+                )}
+              </Text>
+            </div>
+            <Select
+              data={[
+                {
+                  value: "comfortable",
+                  label: t("settings.appearance.comfortable", "Comfortable"),
+                },
+                { value: "compact", label: t("settings.appearance.compact", "Compact") },
+              ]}
+              allowDeselect={false}
+              value={density}
+              onChange={(val) => setDensity((val as "comfortable" | "compact") ?? "comfortable")}
+            />
+          </Group>
+        ),
+      },
+      {
         id: "language",
         title: t("settings.appearance.language"),
         description: t("settings.appearance.languageDesc"),
@@ -890,6 +926,7 @@ export default function Page() {
       setFilesDirectory,
       dateFormatMode,
       dateFormatModes,
+      density,
       handleDateFormatModeChange,
       languages,
       moveNotationData,
@@ -898,6 +935,7 @@ export default function Page() {
       coordinatesModeData,
       practiceAnimationSpeed,
       practiceAnimationSpeedData,
+      setDensity,
       setPracticeAnimationSpeed,
       titleBarData,
     ],

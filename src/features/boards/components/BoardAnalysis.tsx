@@ -1,15 +1,16 @@
 import type { Piece } from "@lichess-org/chessground/types";
-import { Box, Portal } from "@mantine/core";
+import { Box, Portal, Stack } from "@mantine/core";
 import { useHotkeys, useToggle } from "@mantine/hooks";
+import { modals } from "@mantine/modals";
 import { notifications } from "@mantine/notifications";
-import { useLoaderData } from "@tanstack/react-router";
+import { useLoaderData, useNavigate } from "@tanstack/react-router";
 import { writeTextFile } from "@tauri-apps/plugin-fs";
 import { useAtom, useAtomValue } from "jotai";
 import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useStore } from "zustand";
-import MoveControls from "@/components/MoveControls";
 import { TreeStateContext } from "@/components/TreeStateContext";
+import WorkbenchToolbar, { toolbarIcons } from "@/components/WorkbenchToolbar";
 import { useResponsiveLayout } from "@/hooks/useResponsiveLayout";
 import {
   allEnabledAtom,
@@ -29,9 +30,12 @@ import EvalListener from "./EvalListener";
 import GameNotationWrapper from "./GameNotationWrapper";
 import ResponsiveAnalysisPanels from "./ResponsiveAnalysisPanels";
 import ResponsiveBoard from "./ResponsiveBoard";
+import { saveBoardSnapshot } from "./Board";
+import { CUSTOM_EVENTS } from "../constants";
 
 function BoardAnalysis() {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const [editingMode, toggleEditingMode] = useToggle();
   const [selectedPiece, setSelectedPiece] = useState<Piece | null>(null);
   const [viewPawnStructure, setViewPawnStructure] = useState(false);
@@ -193,6 +197,10 @@ function BoardAnalysis() {
     toggleEditingMode();
   }, [toggleEditingMode]);
 
+  const takeSnapshot = useCallback(async () => {
+    await saveBoardSnapshot(boardRef);
+  }, []);
+
   const toggleEngine = useCallback(() => {
     enable(!allEnabled);
   }, [enable, allEnabled]);
@@ -207,6 +215,13 @@ function BoardAnalysis() {
       });
     }
   }, [enable, allEnabled, t]);
+
+  const openImport = useCallback(() => {
+    modals.openContextModal({
+      modal: "importModal",
+      innerProps: { initialSource: "PGN" },
+    });
+  }, []);
 
   const promoteCurrentVariation = useCallback(() => {
     if (position.length > 0) {
@@ -254,7 +269,9 @@ function BoardAnalysis() {
     [
       keyMap.PRACTICE_TAB.keys,
       () => {
-        isRepertoire && setCurrentTabSelected("practice");
+        if (isRepertoire) {
+          setCurrentTabSelected("practice");
+        }
       },
     ],
     [keyMap.ANALYSIS_TAB.keys, () => setCurrentTabSelected("analysis")],
@@ -270,6 +287,40 @@ function BoardAnalysis() {
     ],
     [keyMap.TOGGLE_ENGINE.keys, () => toggleEngine()],
     [keyMap.STOP_ENGINE.keys, () => stopAllEngines()],
+  ]);
+
+  useEffect(() => {
+    const boardEventHandlers: Array<[string, () => void]> = [
+      [CUSTOM_EVENTS.BOARD_SAVE, () => void saveFile()],
+      [CUSTOM_EVENTS.BOARD_COPY_FEN, () => void copyFen()],
+      [CUSTOM_EVENTS.BOARD_COPY_PGN, () => void copyPgn()],
+      [CUSTOM_EVENTS.BOARD_FLIP, flipBoard],
+      [CUSTOM_EVENTS.BOARD_CLEAR_ANNOTATIONS, clearShapes],
+      [CUSTOM_EVENTS.BOARD_SETUP_POSITION, setupPosition],
+      [CUSTOM_EVENTS.BOARD_SNAPSHOT, () => void takeSnapshot()],
+      [CUSTOM_EVENTS.BOARD_TOGGLE_ENGINE, toggleEngine],
+      [CUSTOM_EVENTS.BOARD_STOP_ENGINE, stopAllEngines],
+    ];
+
+    for (const [eventName, handler] of boardEventHandlers) {
+      window.addEventListener(eventName, handler);
+    }
+
+    return () => {
+      for (const [eventName, handler] of boardEventHandlers) {
+        window.removeEventListener(eventName, handler);
+      }
+    };
+  }, [
+    clearShapes,
+    copyFen,
+    copyPgn,
+    flipBoard,
+    saveFile,
+    setupPosition,
+    stopAllEngines,
+    takeSnapshot,
+    toggleEngine,
   ]);
 
   const [currentTabSelected, setCurrentTabSelected] = useAtom(currentTabSelectedAtom);
@@ -318,6 +369,7 @@ function BoardAnalysis() {
             changeTabType={() => setCurrentTab((prev) => ({ ...prev, type: "play" }))}
             currentTabType="analysis"
             clearShapes={clearShapes}
+            takeSnapshot={takeSnapshot}
             disableVariations={false}
             currentTabSourceType={currentTab?.source?.type}
           />
@@ -325,41 +377,128 @@ function BoardAnalysis() {
       ) : (
         // Desktop layout: Use Portal system with Mosaic layout
         <>
-          <Portal target="#left" style={{ height: "100%" }}>
-            <ResponsiveBoard
-              practicing={practicing}
-              dirty={dirty}
-              editingMode={editingMode}
-              toggleEditingMode={toggleEditingMode}
-              boardRef={boardRef}
-              saveFile={saveFile}
-              reload={reloadBoard}
-              addGame={addGame}
-              topBar={false}
-              editingCard={
-                editingMode ? (
-                  <EditingCard
-                    boardRef={boardRef}
-                    setEditingMode={toggleEditingMode}
-                    selectedPiece={selectedPiece}
-                    setSelectedPiece={setSelectedPiece}
-                  />
-                ) : undefined
-              }
-              // Board controls props
-              viewPawnStructure={viewPawnStructure}
-              setViewPawnStructure={setViewPawnStructure}
-              selectedPiece={selectedPiece}
-              setSelectedPiece={setSelectedPiece}
-              canTakeBack={false} // Analysis mode doesn't support take back
-              changeTabType={() => setCurrentTab((prev) => ({ ...prev, type: "play" }))}
-              currentTabType="analysis"
-              clearShapes={clearShapes}
-              disableVariations={false}
-              currentTabSourceType={currentTab?.source?.type}
-            />
+          <Portal target="#board" style={{ height: "100%" }}>
+            <Stack h="100%" gap={0}>
+              <WorkbenchToolbar
+                title={currentTab?.name ?? t("features.tabs.analysisBoard.title")}
+                dirty={dirty}
+                engineRunning={allEnabled}
+                actions={[
+                  {
+                    id: "import",
+                    label: t("features.menu.importPgn"),
+                    icon: toolbarIcons.import,
+                    onClick: openImport,
+                    primary: true,
+                  },
+                  {
+                    id: "save",
+                    label: t("keybindings.saveFile"),
+                    icon: toolbarIcons.save,
+                    onClick: saveFile,
+                    primary: true,
+                  },
+                  {
+                    id: "engine",
+                    label: allEnabled ? t("common.stop") : t("common.run"),
+                    icon: allEnabled ? toolbarIcons.stopEngine : toolbarIcons.startEngine,
+                    onClick: toggleEngine,
+                    primary: true,
+                  },
+                  {
+                    id: "flip",
+                    label: t("keybindings.flipBoard"),
+                    icon: toolbarIcons.flip,
+                    onClick: flipBoard,
+                    primary: true,
+                  },
+                  {
+                    id: "copyFen",
+                    label: t("keybindings.copyFen"),
+                    icon: toolbarIcons.fen,
+                    onClick: copyFen,
+                    primary: true,
+                  },
+                  {
+                    id: "copyPgn",
+                    label: t("keybindings.copyPgn"),
+                    icon: toolbarIcons.copy,
+                    onClick: copyPgn,
+                    primary: true,
+                  },
+                  {
+                    id: "setup",
+                    label: t("keybindings.setupPosition"),
+                    icon: toolbarIcons.setup,
+                    onClick: setupPosition,
+                    primary: true,
+                  },
+                  {
+                    id: "search",
+                    label: t("commands.searchCurrentPosition", "Search current position"),
+                    icon: toolbarIcons.search,
+                    onClick: () => navigate({ to: "/databases" }),
+                    primary: true,
+                  },
+                  {
+                    id: "snapshot",
+                    label: t("features.board.actions.takeSnapshot"),
+                    icon: toolbarIcons.snapshot,
+                    onClick: takeSnapshot,
+                  },
+                  {
+                    id: "clear",
+                    label: t("features.board.actions.clearDrawings"),
+                    icon: toolbarIcons.clear,
+                    onClick: clearShapes,
+                  },
+                  {
+                    id: "resetLayout",
+                    label: t("commands.resetWorkspaceLayout", "Reset workspace layout"),
+                    icon: toolbarIcons.reset,
+                    onClick: () =>
+                      window.dispatchEvent(new Event(CUSTOM_EVENTS.WORKSPACE_RESET_LAYOUT)),
+                  },
+                ]}
+              />
+              <Box flex={1} mih={0}>
+                <ResponsiveBoard
+                  practicing={practicing}
+                  dirty={dirty}
+                  editingMode={editingMode}
+                  toggleEditingMode={toggleEditingMode}
+                  boardRef={boardRef}
+                  saveFile={saveFile}
+                  reload={reloadBoard}
+                  addGame={addGame}
+                  topBar={false}
+                  editingCard={
+                    editingMode ? (
+                      <EditingCard
+                        boardRef={boardRef}
+                        setEditingMode={toggleEditingMode}
+                        selectedPiece={selectedPiece}
+                        setSelectedPiece={setSelectedPiece}
+                      />
+                    ) : undefined
+                  }
+                  // Board controls props
+                  viewPawnStructure={viewPawnStructure}
+                  setViewPawnStructure={setViewPawnStructure}
+                  selectedPiece={selectedPiece}
+                  setSelectedPiece={setSelectedPiece}
+                  canTakeBack={false} // Analysis mode doesn't support take back
+                  changeTabType={() => setCurrentTab((prev) => ({ ...prev, type: "play" }))}
+                  currentTabType="analysis"
+                  clearShapes={clearShapes}
+                  takeSnapshot={takeSnapshot}
+                  disableVariations={false}
+                  currentTabSourceType={currentTab?.source?.type}
+                />
+              </Box>
+            </Stack>
           </Portal>
-          <Portal target="#topRight" style={{ height: "100%" }}>
+          <Portal target="#engine" style={{ height: "100%" }}>
             <ResponsiveAnalysisPanels
               currentTab={currentTabSelected}
               onTabChange={(v) => setCurrentTabSelected(v || "info")}
@@ -380,9 +519,7 @@ function BoardAnalysis() {
             setSelectedPiece={setSelectedPiece}
           />
         }
-      >
-        <MoveControls readOnly />
-      </GameNotationWrapper>
+      />
     </>
   );
 }

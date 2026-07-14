@@ -366,7 +366,7 @@ function BoardVariants() {
       ) : (
         // Desktop layout: Use Portal system with Mosaic layout
         <>
-          <Portal target="#left" style={{ height: "100%" }}>
+          <Portal target="#board" style={{ height: "100%" }}>
             <ResponsiveBoard
               practicing={practicing}
               dirty={dirty}
@@ -400,7 +400,7 @@ function BoardVariants() {
               currentTabSourceType={currentTab?.source?.type || undefined}
             />
           </Portal>
-          <Portal target="#topRight" style={{ height: "100%" }}>
+          <Portal target="#engine" style={{ height: "100%" }}>
             <ResponsiveAnalysisPanels
               currentTab={currentTabSelected}
               onTabChange={(v) => setCurrentTabSelected(v || "info")}
