@@ -1,14 +1,9 @@
 import type { SpotlightActionData, SpotlightActionGroupData } from "@mantine/spotlight";
 import { IconCommand, IconFile } from "@tabler/icons-react";
-import { readDir } from "@tauri-apps/plugin-fs";
 import type { NavigateFn } from "@tanstack/react-router";
 import type { Dispatch, ReactNode, SetStateAction } from "react";
 import type { AppCommand } from "@/app/commands";
-import {
-  type Directory,
-  type FileMetadata,
-  processEntriesRecursively,
-} from "@/features/files/utils/file";
+import { getCachedFileIndex } from "@/features/files/utils/file";
 import { getDocumentDir } from "@/utils/documentDir";
 import { openFile } from "@/utils/files";
 import type { Tab } from "@/utils/tabs";
@@ -48,13 +43,6 @@ type SearchContext = {
 };
 
 const searchIcon = (icon: ReactNode) => icon;
-
-function flattenFiles(entries: (FileMetadata | Directory)[]): FileMetadata[] {
-  return entries.flatMap((entry) => {
-    if (entry.type === "directory") return flattenFiles(entry.children);
-    return [entry];
-  });
-}
 
 function normalize(value: string): string {
   return value.toLowerCase().trim();
@@ -104,8 +92,7 @@ export function buildSearchProviders(ctx: SearchContext): SearchProvider[] {
         if (normalizedQuery.length < 2) return [];
 
         const documentDir = await getDocumentDir();
-        const entries = await readDir(documentDir);
-        const files = flattenFiles(await processEntriesRecursively(documentDir, entries));
+        const files = await getCachedFileIndex(documentDir);
 
         return files
           .filter((file) => {
@@ -124,7 +111,8 @@ export function buildSearchProviders(ctx: SearchContext): SearchProvider[] {
           .slice(0, 8)
           .map((file) => ({
             id: `file:${file.path}`,
-            group: file.metadata.type === "repertoire" ? ("Repertoires" as const) : ("Files" as const),
+            group:
+              file.metadata.type === "repertoire" ? ("Repertoires" as const) : ("Files" as const),
             title: file.name,
             description: `${file.metadata.type} · ${file.numGames} game${file.numGames === 1 ? "" : "s"}`,
             keywords: [file.metadata.type, ...file.metadata.tags],
@@ -139,7 +127,10 @@ export function buildSearchProviders(ctx: SearchContext): SearchProvider[] {
   ];
 }
 
-export async function searchAll(query: string, providers: SearchProvider[]): Promise<SearchResult[]> {
+export async function searchAll(
+  query: string,
+  providers: SearchProvider[],
+): Promise<SearchResult[]> {
   const settledResults = await Promise.allSettled(
     providers.map((provider) => provider.search(query)),
   );

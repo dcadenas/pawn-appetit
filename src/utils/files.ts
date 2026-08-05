@@ -5,7 +5,7 @@ import { exists, mkdir, readTextFile, writeTextFile } from "@tauri-apps/plugin-f
 import { platform } from "@tauri-apps/plugin-os";
 import { defaultGame, makePgn } from "chessops/pgn";
 import { commands } from "@/bindings";
-import type { FileMetadata } from "@/features/files/utils/file";
+import { invalidateFileIndex, type FileMetadata } from "@/features/files/utils/file";
 import { unwrap } from "@/utils/unwrap";
 import { parsePGN } from "./chess";
 import { serializeStorageValue } from "./tabStateStorage";
@@ -35,8 +35,10 @@ export async function openFile(
     setActiveTab: React.Dispatch<React.SetStateAction<string | null>>,
 ) {
     const count = unwrap(await commands.countPgnGames(file));
-    const games = unwrap(await commands.readGames(file, 0, count - 1));
-    const allGamesContent = games.join("");
+    const firstGame = unwrap(await commands.readGames(file, 0, 0))[0];
+    if (!firstGame) {
+        throw new Error("PGN file does not contain any games");
+    }
 
     const fileName = await getFileNameWithoutExtension(file);
 
@@ -69,7 +71,7 @@ export async function openFile(
     // Parse only the first game for session storage
     // For variants files, parse as normal PGN (with variations) but display in variants view
     // Don't use isVariantsMode for parsing - that's only for special PGNs where all sequences are variations
-    const firstGameTree = await parsePGN(games[0]);
+    const firstGameTree = await parsePGN(firstGame);
 
     const tabId = await createTab({
         tab: {
@@ -78,8 +80,8 @@ export async function openFile(
         },
         setTabs,
         setActiveTab,
-        pgn: allGamesContent,
         srcInfo: fileInfo,
+        gameNumber: 0,
     });
 
     // Store the first game's state in session storage (for backward compatibility)
@@ -111,6 +113,7 @@ export async function createFile({
     await writeTextFile(file.replace(".pgn", ".info"), JSON.stringify(metadata));
 
     const numGames = unwrap(await commands.countPgnGames(file));
+    invalidateFileIndex(dir);
 
     return Result.ok({
         type: "file",

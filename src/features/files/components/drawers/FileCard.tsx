@@ -9,6 +9,7 @@ import { useTranslation } from "react-i18next";
 import { commands } from "@/bindings";
 import GameSelector from "@/components/panels/info/GameSelector";
 import GamePreview from "@/features/databases/components/drawers/GamePreview";
+import { invalidateFileIndex } from "@/features/files/utils/file";
 import { activeTabAtom, tabsAtom } from "@/state/atoms";
 import { createTab } from "@/utils/tabs";
 import { unwrap } from "@/utils/unwrap";
@@ -87,6 +88,7 @@ function FileCard({
       onConfirm: async () => {
         await remove(selected.path);
         await remove(selected.path.replace(".pgn", ".info"));
+        invalidateFileIndex();
         mutate(files?.filter((file) => file.name !== selected.name));
         setSelected(null);
       },

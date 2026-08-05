@@ -20,8 +20,12 @@ import { DataTable, type DataTableSortStatus } from "mantine-datatable";
 import { useCallback, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { commands } from "@/bindings";
-import type { Directory, FileMetadata } from "@/features/files/utils/file";
-import { FILE_TYPE_LABELS } from "@/features/files/utils/file";
+import {
+  FILE_TYPE_LABELS,
+  invalidateFileIndex,
+  type Directory,
+  type FileMetadata,
+} from "@/features/files/utils/file";
 import { getStats } from "@/features/files/utils/opening";
 import { useLanguageChangeListener } from "@/hooks/useLanguageChangeListener";
 import { activeTabAtom, deckAtomFamily, tabsAtom } from "@/state/atoms";
@@ -390,6 +394,7 @@ function Table({
               } else {
                 await remove(record.path);
               }
+              invalidateFileIndex();
               setFiles(files?.filter((f) => record.path.includes(f.path)));
             },
           },

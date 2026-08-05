@@ -10,6 +10,7 @@ import {
   type PgnTarget,
   resolvePgnTarget,
 } from "@/features/files/components/PgnSourceInput";
+import { invalidateFileIndex } from "@/features/files/utils/file";
 import { createFile } from "@/utils/files";
 import type { Directory, FileMetadata, FileType } from "../../utils/file";
 
@@ -116,6 +117,7 @@ export function EditModal({
     await rename(metadata.path, newPGNPath);
     await rename(metadataPath.replace(".pgn", ".info"), newPGNPath.replace(".pgn", ".info"));
 
+    invalidateFileIndex();
     mutate();
     setSelected((selected) =>
       selected?.path === metadata.path

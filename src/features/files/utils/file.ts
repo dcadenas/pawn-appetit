@@ -83,6 +83,15 @@ export type Directory = {
     name: string;
 };
 
+const fileIndexCache = new Map<string, Promise<FileMetadata[]>>();
+
+export function flattenFiles(entries: (FileMetadata | Directory)[]): FileMetadata[] {
+    return entries.flatMap((entry) => {
+        if (entry.type === "directory") return flattenFiles(entry.children);
+        return [entry];
+    });
+}
+
 export async function processEntriesRecursively(parent: string, entries: DirEntry[]) {
     const allEntries: (FileMetadata | Directory)[] = [];
     for (const entry of entries) {
@@ -106,4 +115,29 @@ export async function processEntriesRecursively(parent: string, entries: DirEntr
         }
     }
     return allEntries;
+}
+
+export async function buildFileIndex(root: string): Promise<FileMetadata[]> {
+    const entries = await readDir(root);
+    return flattenFiles(await processEntriesRecursively(root, entries));
+}
+
+export async function getCachedFileIndex(root: string): Promise<FileMetadata[]> {
+    const cached = fileIndexCache.get(root);
+    if (cached) return cached;
+
+    const indexed = buildFileIndex(root).catch((error) => {
+        fileIndexCache.delete(root);
+        throw error;
+    });
+    fileIndexCache.set(root, indexed);
+    return indexed;
+}
+
+export function invalidateFileIndex(root?: string): void {
+    if (root) {
+        fileIndexCache.delete(root);
+        return;
+    }
+    fileIndexCache.clear();
 }

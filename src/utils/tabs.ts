@@ -3,8 +3,8 @@ import { INITIAL_FEN } from "chessops/fen";
 import { z } from "zod";
 import type { StoreApi } from "zustand";
 import { commands } from "@/bindings";
+import { fileMetadataSchema, invalidateFileIndex } from "@/features/files/utils/file";
 import { serializeStorageValue } from "./tabStateStorage";
-import { fileMetadataSchema } from "@/features/files/utils/file";
 import type { TreeStoreState } from "@/state/store/tree";
 import { createFile, getFileNameWithoutExtension, isTempImportFile } from "@/utils/files";
 import { unwrap } from "@/utils/unwrap";
@@ -209,6 +209,7 @@ export async function saveToFile({
             variations: true,
         })}\n\n`,
     );
+    invalidateFileIndex();
     store.getState().save();
 }
 
@@ -225,6 +226,7 @@ export async function saveTab(tab: Tab, store: StoreApi<TreeStoreState>) {
         })}\n\n`;
 
         await commands.writeGame(tab.source.path, tab?.gameNumber || 0, pgn);
+        invalidateFileIndex();
     } else if (tab.source?.type === "db") {
         const headers = store.getState().headers;
         const moves = `${getPGN(store.getState().root, {
