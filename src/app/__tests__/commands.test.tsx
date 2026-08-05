@@ -1,11 +1,7 @@
 import { describe, expect, test } from "vitest";
 import type { NavigateFn } from "@tanstack/react-router";
 import type { TFunction } from "i18next";
-import {
-  buildAppCommands,
-  commandsToMenuGroups,
-  commandsToSpotlightActions,
-} from "@/app/commands";
+import { buildAppCommands, commandsToMenuGroups, commandsToSpotlightActions } from "@/app/commands";
 import type { KeyDef } from "@/state/keybindings";
 
 const keyMap = new Proxy<Record<string, KeyDef>>(
@@ -82,5 +78,30 @@ describe("application command registry", () => {
 
     expect(analysisCommand?.label).toBe("Analysis");
     expect(analysisCommand?.description).toBe("Open Analysis");
+  });
+
+  test("reflects engine state in labels and disabled commands", () => {
+    const stoppedCommands = buildCommands({
+      hasBoardTab: true,
+      engineRunning: false,
+      toggleEngine: noop,
+    });
+    const stoppedToggle = stoppedCommands.find((command) => command.id === "engine.toggle");
+    const stoppedStop = stoppedCommands.find((command) => command.id === "engine.stop");
+
+    expect(stoppedToggle?.label).toBe("Start engine");
+    expect(stoppedStop?.disabled).toBe(true);
+
+    const runningCommands = buildCommands({
+      hasBoardTab: true,
+      engineRunning: true,
+      toggleEngine: noop,
+      stopEngine: noop,
+    });
+    const runningToggle = runningCommands.find((command) => command.id === "engine.toggle");
+    const runningStop = runningCommands.find((command) => command.id === "engine.stop");
+
+    expect(runningToggle?.label).toBe("Stop engine");
+    expect(runningStop?.disabled).toBe(false);
   });
 });

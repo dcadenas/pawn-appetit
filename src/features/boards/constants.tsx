@@ -129,15 +129,6 @@ export function normalizeMosaicLayout(
 export const CUSTOM_EVENTS = {
   ENGINE_REORDER: "engineReorder",
   WORKSPACE_RESET_LAYOUT: "workspaceResetLayout",
-  BOARD_SAVE: "boardSave",
-  BOARD_COPY_FEN: "boardCopyFen",
-  BOARD_COPY_PGN: "boardCopyPgn",
-  BOARD_FLIP: "boardFlip",
-  BOARD_CLEAR_ANNOTATIONS: "boardClearAnnotations",
-  BOARD_SETUP_POSITION: "boardSetupPosition",
-  BOARD_SNAPSHOT: "boardSnapshot",
-  BOARD_TOGGLE_ENGINE: "boardToggleEngine",
-  BOARD_STOP_ENGINE: "boardStopEngine",
 } as const;
 
 export const REPORT_ID_PREFIX = "report_";

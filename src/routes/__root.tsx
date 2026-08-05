@@ -28,6 +28,11 @@ import AboutModal from "@/components/About";
 import { SideBar } from "@/components/Sidebar";
 import StatusBar from "@/components/StatusBar";
 import TopBar from "@/components/TopBar";
+import {
+  type BoardCommandId,
+  getRunnableBoardCommand,
+  useActiveBoardCommands,
+} from "@/features/boards/commands/boardCommandRegistry";
 import ImportModal from "@/features/boards/components/ImportModal";
 import { CUSTOM_EVENTS } from "@/features/boards/constants";
 import { useResponsiveLayout } from "@/hooks/useResponsiveLayout";
@@ -513,9 +518,11 @@ function RootLayout() {
     }
   }, []);
 
-  const dispatchBoardEvent = useCallback((eventName: string) => {
-    window.dispatchEvent(new Event(eventName));
-  }, []);
+  const activeBoardCommands = useActiveBoardCommands(activeTab);
+  const getBoardAction = useCallback(
+    (commandId: BoardCommandId) => getRunnableBoardCommand(activeBoardCommands, commandId),
+    [activeBoardCommands],
+  );
 
   const appCommands = useMemo(
     () =>
@@ -524,8 +531,8 @@ function RootLayout() {
         t,
         keyMap,
         hasActiveTab: Boolean(activeTab),
-        hasBoardTab: Boolean(activeTab),
-        engineRunning: false,
+        hasBoardTab: Boolean(activeBoardCommands),
+        engineRunning: activeBoardCommands?.engineRunning ?? false,
         openImport: (source = "PGN") => {
           navigate({ to: "/boards" });
           modals.openContextModal({
@@ -560,15 +567,15 @@ function RootLayout() {
         },
         closeCurrentTab: handleCloseTab,
         closeOtherTabs: handleCloseOtherTabs,
-        saveCurrentGame: () => dispatchBoardEvent(CUSTOM_EVENTS.BOARD_SAVE),
-        copyPgn: () => dispatchBoardEvent(CUSTOM_EVENTS.BOARD_COPY_PGN),
-        copyFen: () => dispatchBoardEvent(CUSTOM_EVENTS.BOARD_COPY_FEN),
-        flipBoard: () => dispatchBoardEvent(CUSTOM_EVENTS.BOARD_FLIP),
-        clearBoardAnnotations: () => dispatchBoardEvent(CUSTOM_EVENTS.BOARD_CLEAR_ANNOTATIONS),
-        setupBoard: () => dispatchBoardEvent(CUSTOM_EVENTS.BOARD_SETUP_POSITION),
-        takeSnapshot: () => dispatchBoardEvent(CUSTOM_EVENTS.BOARD_SNAPSHOT),
-        toggleEngine: () => dispatchBoardEvent(CUSTOM_EVENTS.BOARD_TOGGLE_ENGINE),
-        stopEngine: () => dispatchBoardEvent(CUSTOM_EVENTS.BOARD_STOP_ENGINE),
+        saveCurrentGame: getBoardAction("save"),
+        copyPgn: getBoardAction("copyPgn"),
+        copyFen: getBoardAction("copyFen"),
+        flipBoard: getBoardAction("flip"),
+        clearBoardAnnotations: getBoardAction("clearAnnotations"),
+        setupBoard: getBoardAction("setupPosition"),
+        takeSnapshot: getBoardAction("snapshot"),
+        toggleEngine: getBoardAction("toggleEngine"),
+        stopEngine: getBoardAction("stopEngine"),
         resetWorkspaceLayout: () => {
           window.dispatchEvent(new Event(CUSTOM_EVENTS.WORKSPACE_RESET_LAYOUT));
         },
@@ -583,7 +590,8 @@ function RootLayout() {
       setActiveTab,
       handleCloseTab,
       handleCloseOtherTabs,
-      dispatchBoardEvent,
+      activeBoardCommands,
+      getBoardAction,
     ],
   );
 
@@ -790,7 +798,9 @@ function RootLayout() {
             label: t("features.menu.reportIssue"),
             id: "report_issue",
             action: async () => {
-              await commands.openExternalLink("https://github.com/Pawn-Appetit/pawn-appetit/issues/new");
+              await commands.openExternalLink(
+                "https://github.com/Pawn-Appetit/pawn-appetit/issues/new",
+              );
             },
           },
           { label: "divider" },
@@ -882,7 +892,11 @@ function RootLayout() {
         data-density={density}
       >
         <AppShell.Header>
-          <TopBar menuActions={menuActions} commands={appCommands} searchProviders={searchProviders} />
+          <TopBar
+            menuActions={menuActions}
+            commands={appCommands}
+            searchProviders={searchProviders}
+          />
         </AppShell.Header>
         <AppShell.Navbar>{layout.sidebar.position === "navbar" && <SideBar />}</AppShell.Navbar>
         <AppShell.Main style={{ display: "flex", flexDirection: "column" }}>

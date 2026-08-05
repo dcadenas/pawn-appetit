@@ -6,11 +6,15 @@ import { notifications } from "@mantine/notifications";
 import { useLoaderData, useNavigate } from "@tanstack/react-router";
 import { writeTextFile } from "@tauri-apps/plugin-fs";
 import { useAtom, useAtomValue } from "jotai";
-import { useCallback, useContext, useEffect, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useStore } from "zustand";
 import { TreeStateContext } from "@/components/TreeStateContext";
 import WorkbenchToolbar, { toolbarIcons } from "@/components/WorkbenchToolbar";
+import {
+  type BoardCommandRegistration,
+  useRegisterBoardCommands,
+} from "@/features/boards/commands/boardCommandRegistry";
 import { useResponsiveLayout } from "@/hooks/useResponsiveLayout";
 import {
   allEnabledAtom,
@@ -289,39 +293,40 @@ function BoardAnalysis() {
     [keyMap.STOP_ENGINE.keys, () => stopAllEngines()],
   ]);
 
-  useEffect(() => {
-    const boardEventHandlers: Array<[string, () => void]> = [
-      [CUSTOM_EVENTS.BOARD_SAVE, () => void saveFile()],
-      [CUSTOM_EVENTS.BOARD_COPY_FEN, () => void copyFen()],
-      [CUSTOM_EVENTS.BOARD_COPY_PGN, () => void copyPgn()],
-      [CUSTOM_EVENTS.BOARD_FLIP, flipBoard],
-      [CUSTOM_EVENTS.BOARD_CLEAR_ANNOTATIONS, clearShapes],
-      [CUSTOM_EVENTS.BOARD_SETUP_POSITION, setupPosition],
-      [CUSTOM_EVENTS.BOARD_SNAPSHOT, () => void takeSnapshot()],
-      [CUSTOM_EVENTS.BOARD_TOGGLE_ENGINE, toggleEngine],
-      [CUSTOM_EVENTS.BOARD_STOP_ENGINE, stopAllEngines],
-    ];
+  const boardCommands = useMemo<BoardCommandRegistration>(
+    () => ({
+      engineRunning: allEnabled,
+      commands: {
+        save: { id: "save", run: () => void saveFile() },
+        copyFen: { id: "copyFen", run: () => void copyFen() },
+        copyPgn: { id: "copyPgn", run: () => void copyPgn() },
+        flip: { id: "flip", run: flipBoard },
+        clearAnnotations: { id: "clearAnnotations", run: clearShapes },
+        setupPosition: { id: "setupPosition", run: setupPosition },
+        snapshot: { id: "snapshot", run: () => void takeSnapshot() },
+        toggleEngine: { id: "toggleEngine", run: toggleEngine },
+        stopEngine: {
+          id: "stopEngine",
+          run: stopAllEngines,
+          disabled: !allEnabled,
+        },
+      },
+    }),
+    [
+      allEnabled,
+      clearShapes,
+      copyFen,
+      copyPgn,
+      flipBoard,
+      saveFile,
+      setupPosition,
+      stopAllEngines,
+      takeSnapshot,
+      toggleEngine,
+    ],
+  );
 
-    for (const [eventName, handler] of boardEventHandlers) {
-      window.addEventListener(eventName, handler);
-    }
-
-    return () => {
-      for (const [eventName, handler] of boardEventHandlers) {
-        window.removeEventListener(eventName, handler);
-      }
-    };
-  }, [
-    clearShapes,
-    copyFen,
-    copyPgn,
-    flipBoard,
-    saveFile,
-    setupPosition,
-    stopAllEngines,
-    takeSnapshot,
-    toggleEngine,
-  ]);
+  useRegisterBoardCommands(currentTab?.value, boardCommands);
 
   const [currentTabSelected, setCurrentTabSelected] = useAtom(currentTabSelectedAtom);
   const practiceTabSelected = useAtomValue(currentPracticeTabAtom);
