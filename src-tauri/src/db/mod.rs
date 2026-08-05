@@ -1,47 +1,51 @@
+mod connection;
 mod core;
 mod encoding;
+mod export;
+mod import;
+mod maintenance;
 mod models;
 mod ops;
 mod pgn;
+mod progress;
 mod schema;
 mod search;
 
 use crate::{
-    db::{encoding::extract_main_line_moves, models::*, ops::*, schema::*},
+    db::{encoding::extract_main_line_moves, import::insert_to_db, models::*, schema::*},
     error::{Error, Result},
     opening::get_opening_from_setup,
     AppState,
 };
 use dashmap::DashMap;
-use diesel::{
-    connection::{DefaultLoadingMode, SimpleConnection},
-    insert_into,
-    prelude::*,
-    r2d2::{ConnectionManager, Pool},
-    sql_query,
-    sql_types::Text,
-};
-use pgn::{GameTree, Importer, TempGame};
+use diesel::{connection::SimpleConnection, insert_into, prelude::*, sql_query, sql_types::Text};
+use pgn::Importer;
 use pgn_reader::BufferedReader;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
-use shakmaty::{fen::Fen, Board, CastlingMode, Chess, EnPassantMode, FromSetup, Piece, Position};
+use shakmaty::{Chess, EnPassantMode, Position};
 use specta::Type;
-use std::io::{BufWriter, Write};
 use std::{
-    fs::{remove_file, File, OpenOptions},
+    fs::File,
     path::PathBuf,
     sync::atomic::{AtomicUsize, Ordering},
-    time::{Duration, Instant},
+    time::Instant,
 };
+use tauri::Emitter;
 use tauri::{path::BaseDirectory, Manager};
-use tauri::{Emitter, State};
 
 use log::info;
 use tauri_specta::Event as _;
 
+pub(crate) use self::connection::{get_db_or_create, ConnectionOptions, JournalMode};
+pub use self::export::export_to_pgn;
+pub(crate) use self::import::get_pawn_home;
+pub use self::maintenance::{
+    clear_games, delete_database, delete_duplicated_games, delete_empty_games,
+};
 pub use self::models::NormalizedGame;
 pub use self::models::Puzzle;
+pub use self::progress::DatabaseProgress;
 pub use self::schema::puzzles;
 pub use self::search::{
     is_position_in_db, search_position, PositionQuery, PositionQueryJs, PositionStats,
@@ -51,176 +55,8 @@ const INDEXES_SQL: &str = include_str!("../../../database/queries/indexes/create
 const DELETE_INDEXES_SQL: &str =
     include_str!("../../../database/queries/indexes/delete_indexes.sql");
 
-// PRAGMA queries
-const PRAGMA_JOURNAL_MODE_DELETE: &str =
-    include_str!("../../../database/pragmas/journal_mode_delete.sql");
-const PRAGMA_JOURNAL_MODE_OFF: &str =
-    include_str!("../../../database/pragmas/journal_mode_off.sql");
-const PRAGMA_FOREIGN_KEYS_ON: &str = include_str!("../../../database/pragmas/foreign_keys_on.sql");
-const PRAGMA_BUSY_TIMEOUT: &str = include_str!("../../../database/pragmas/busy_timeout.sql");
-
 // Games queries
 const GAMES_CHECK_INDEXES: &str = include_str!("../../../database/queries/games/check_indexes.sql");
-const GAMES_DELETE_DUPLICATES: &str =
-    include_str!("../../../database/queries/games/delete_duplicates.sql");
-
-const WHITE_PAWN: Piece = Piece {
-    color: shakmaty::Color::White,
-    role: shakmaty::Role::Pawn,
-};
-
-const BLACK_PAWN: Piece = Piece {
-    color: shakmaty::Color::Black,
-    role: shakmaty::Role::Pawn,
-};
-
-/// Returns the bit representation of the pawns on the second and seventh rank
-/// of the given board.
-fn get_pawn_home(board: &Board) -> u16 {
-    let white_pawns = board.by_piece(WHITE_PAWN);
-    let black_pawns = board.by_piece(BLACK_PAWN);
-    let second_rank_pawns = (white_pawns.0 >> 8) as u8;
-    let seventh_rank_pawns = (black_pawns.0 >> 48) as u8;
-    (second_rank_pawns as u16) | ((seventh_rank_pawns as u16) << 8)
-}
-
-#[derive(Debug)]
-pub enum JournalMode {
-    Delete,
-    Off,
-}
-
-#[derive(Debug)]
-pub struct ConnectionOptions {
-    pub journal_mode: JournalMode,
-    pub enable_foreign_keys: bool,
-    pub busy_timeout: Option<Duration>,
-}
-
-impl Default for ConnectionOptions {
-    fn default() -> Self {
-        Self {
-            journal_mode: JournalMode::Delete,
-            enable_foreign_keys: true,
-            busy_timeout: Some(Duration::from_secs(30)),
-        }
-    }
-}
-
-impl diesel::r2d2::CustomizeConnection<SqliteConnection, diesel::r2d2::Error>
-    for ConnectionOptions
-{
-    fn on_acquire(
-        &self,
-        conn: &mut SqliteConnection,
-    ) -> std::result::Result<(), diesel::r2d2::Error> {
-        (|| {
-            match self.journal_mode {
-                JournalMode::Delete => conn.batch_execute(PRAGMA_JOURNAL_MODE_DELETE)?,
-                JournalMode::Off => conn.batch_execute(PRAGMA_JOURNAL_MODE_OFF)?,
-            }
-            if self.enable_foreign_keys {
-                conn.batch_execute(PRAGMA_FOREIGN_KEYS_ON)?;
-            }
-            if let Some(d) = self.busy_timeout {
-                conn.batch_execute(
-                    &PRAGMA_BUSY_TIMEOUT.replace("{0}", &d.as_millis().to_string()),
-                )?;
-            }
-            Ok(())
-        })()
-        .map_err(diesel::r2d2::Error::QueryError)
-    }
-}
-
-fn get_db_or_create(
-    state: &State<AppState>,
-    db_path: &str,
-    options: ConnectionOptions,
-) -> Result<diesel::r2d2::PooledConnection<diesel::r2d2::ConnectionManager<diesel::SqliteConnection>>>
-{
-    let pool = match state.connection_pool.get(db_path) {
-        Some(pool) => pool.clone(),
-        None => {
-            let pool = Pool::builder()
-                .max_size(16)
-                .connection_customizer(Box::new(options))
-                .build(ConnectionManager::<SqliteConnection>::new(db_path))?;
-            state
-                .connection_pool
-                .insert(db_path.to_string(), pool.clone());
-            pool
-        }
-    };
-
-    Ok(pool.get()?)
-}
-
-#[derive(Default, Debug, Serialize)]
-pub struct TempPlayer {
-    id: usize,
-    name: Option<String>,
-    rating: Option<i32>,
-}
-
-pub fn insert_to_db(db: &mut SqliteConnection, game: &TempGame) -> Result<()> {
-    let pawn_home = get_pawn_home(game.position.board());
-
-    let white_id = if let Some(name) = &game.white_name {
-        create_player(db, name)?.id
-    } else {
-        0
-    };
-
-    let black_id = if let Some(name) = &game.black_name {
-        create_player(db, name)?.id
-    } else {
-        0
-    };
-
-    let event_id = if let Some(name) = &game.event_name {
-        create_event(db, name)?.id
-    } else {
-        0
-    };
-
-    let site_id = if let Some(name) = &game.site_name {
-        create_site(db, name)?.id
-    } else {
-        0
-    };
-
-    let ply_count = game.tree.count_main_line_moves() as i32;
-    let final_material = pgn::get_material_count(game.position.board());
-    let minimal_white_material = game.material_count.white.min(final_material.white) as i32;
-    let minimal_black_material = game.material_count.black.min(final_material.black) as i32;
-
-    let new_game = NewGame {
-        white_id,
-        black_id,
-        ply_count,
-        eco: game.eco.as_deref(),
-        round: game.round.as_deref(),
-        white_elo: game.white_elo,
-        black_elo: game.black_elo,
-        white_material: minimal_white_material,
-        black_material: minimal_black_material,
-        // max_rating: game.game.white.rating.max(game.game.black.rating),
-        date: game.date.as_deref(),
-        time: game.time.as_deref(),
-        time_control: game.time_control.as_deref(),
-        site_id,
-        event_id,
-        fen: game.fen.as_deref(),
-        result: game.result.as_deref(),
-        moves: game.moves.as_slice(),
-        pawn_home: pawn_home as i32,
-    };
-
-    core::add_game(db, new_game)?;
-
-    Ok(())
-}
 
 #[tauri::command]
 #[specta::specta]
@@ -1002,12 +838,6 @@ pub struct StatsData {
     pub opening: String,
 }
 
-#[derive(Serialize, Debug, Clone, Type, tauri_specta::Event)]
-pub struct DatabaseProgress {
-    pub id: String,
-    pub progress: f64,
-}
-
 #[tauri::command]
 #[specta::specta]
 pub async fn get_players_game_info(
@@ -1176,178 +1006,6 @@ pub async fn get_players_game_info(
 
 #[tauri::command]
 #[specta::specta]
-pub async fn delete_database(file: PathBuf, state: tauri::State<'_, AppState>) -> Result<()> {
-    let pool = &state.connection_pool;
-    let path_str = file.to_str().unwrap();
-    pool.remove(path_str);
-
-    // delete file
-    remove_file(path_str)?;
-    Ok(())
-}
-
-#[tauri::command]
-#[specta::specta]
-pub async fn delete_duplicated_games(
-    file: PathBuf,
-    state: tauri::State<'_, AppState>,
-) -> Result<()> {
-    let db = &mut get_db_or_create(&state, file.to_str().unwrap(), ConnectionOptions::default())?;
-
-    db.batch_execute(GAMES_DELETE_DUPLICATES)?;
-
-    Ok(())
-}
-
-#[tauri::command]
-#[specta::specta]
-pub async fn delete_empty_games(file: PathBuf, state: tauri::State<'_, AppState>) -> Result<()> {
-    let db = &mut get_db_or_create(&state, file.to_str().unwrap(), ConnectionOptions::default())?;
-
-    diesel::delete(games::table.filter(games::ply_count.eq(0))).execute(db)?;
-
-    Ok(())
-}
-
-struct PgnGame {
-    event: Option<String>,
-    site: Option<String>,
-    date: Option<String>,
-    round: Option<String>,
-    white: Option<String>,
-    black: Option<String>,
-    result: Option<String>,
-    time_control: Option<String>,
-    eco: Option<String>,
-    white_elo: Option<String>,
-    black_elo: Option<String>,
-    ply_count: Option<String>,
-    fen: Option<String>,
-    moves: String,
-}
-
-impl PgnGame {
-    fn write(&self, writer: &mut impl Write) -> Result<()> {
-        writeln!(
-            writer,
-            "[Event \"{}\"]",
-            self.event.as_deref().unwrap_or("")
-        )?;
-        writeln!(writer, "[Site \"{}\"]", self.site.as_deref().unwrap_or(""))?;
-        writeln!(writer, "[Date \"{}\"]", self.date.as_deref().unwrap_or(""))?;
-        writeln!(
-            writer,
-            "[Round \"{}\"]",
-            self.round.as_deref().unwrap_or("")
-        )?;
-        writeln!(
-            writer,
-            "[White \"{}\"]",
-            self.white.as_deref().unwrap_or("")
-        )?;
-        writeln!(
-            writer,
-            "[Black \"{}\"]",
-            self.black.as_deref().unwrap_or("")
-        )?;
-        writeln!(
-            writer,
-            "[Result \"{}\"]",
-            self.result.as_deref().unwrap_or("*")
-        )?;
-        if let Some(time_control) = self.time_control.as_deref() {
-            writeln!(writer, "[TimeControl \"{}\"]", time_control)?;
-        }
-        if let Some(eco) = self.eco.as_deref() {
-            writeln!(writer, "[ECO \"{}\"]", eco)?;
-        }
-        if let Some(white_elo) = self.white_elo.as_deref() {
-            writeln!(writer, "[WhiteElo \"{}\"]", white_elo)?;
-        }
-        if let Some(black_elo) = self.black_elo.as_deref() {
-            writeln!(writer, "[BlackElo \"{}\"]", black_elo)?;
-        }
-        if let Some(ply_count) = self.ply_count.as_deref() {
-            writeln!(writer, "[PlyCount \"{}\"]", ply_count)?;
-        }
-        if let Some(fen) = self.fen.as_deref() {
-            writeln!(writer, "[SetUp \"1\"]")?;
-            writeln!(writer, "[FEN \"{}\"]", fen)?;
-        }
-        writeln!(writer)?;
-        writer.write_all(self.moves.as_bytes())?;
-        match self.result.as_deref() {
-            Some("1-0") => writeln!(writer, "1-0"),
-            Some("0-1") => writeln!(writer, "0-1"),
-            Some("1/2-1/2") => writeln!(writer, "1/2-1/2"),
-            _ => writeln!(writer, "*"),
-        }?;
-        writeln!(writer)?;
-        Ok(())
-    }
-}
-
-#[tauri::command]
-#[specta::specta]
-pub async fn export_to_pgn(
-    file: PathBuf,
-    dest_file: PathBuf,
-    state: tauri::State<'_, AppState>,
-) -> Result<()> {
-    let db = &mut get_db_or_create(&state, file.to_str().unwrap(), ConnectionOptions::default())?;
-
-    let file = OpenOptions::new()
-        .create(true)
-        .write(true)
-        .truncate(true)
-        .open(dest_file)?;
-
-    let mut writer = BufWriter::new(file);
-
-    let (white_players, black_players) = diesel::alias!(players as white, players as black);
-    games::table
-        .inner_join(white_players.on(games::white_id.eq(white_players.field(players::id))))
-        .inner_join(black_players.on(games::black_id.eq(black_players.field(players::id))))
-        .inner_join(events::table.on(games::event_id.eq(events::id)))
-        .inner_join(sites::table.on(games::site_id.eq(sites::id)))
-        .load_iter::<(Game, Player, Player, Event, Site), DefaultLoadingMode>(db)?
-        .flatten()
-        .map(|(game, white, black, event, site)| {
-            let pgn = PgnGame {
-                event: event.name,
-                site: site.name,
-                date: game.date,
-                round: game.round,
-                white: white.name,
-                black: black.name,
-                result: game.result,
-                time_control: game.time_control,
-                eco: game.eco,
-                white_elo: game.white_elo.map(|e| e.to_string()),
-                black_elo: game.black_elo.map(|e| e.to_string()),
-                ply_count: game.ply_count.map(|e| e.to_string()),
-                fen: game.fen.clone(),
-                moves: GameTree::from_bytes(
-                    &game.moves,
-                    game.fen
-                        .map(|fen| Fen::from_ascii(fen.as_bytes()).ok())
-                        .flatten()
-                        .map(|fen| Chess::from_setup(fen.into(), CastlingMode::Chess960).ok())
-                        .flatten(),
-                )?
-                .to_string(),
-            };
-
-            pgn.write(&mut writer)?;
-
-            Ok(())
-        })
-        .collect::<Result<Vec<_>>>()?;
-    Ok(())
-}
-
-#[tauri::command]
-#[specta::specta]
 pub async fn delete_db_game(
     file: PathBuf,
     game_id: i32,
@@ -1430,32 +1088,4 @@ pub async fn merge_players(
         .execute(db)?;
 
     Ok(())
-}
-
-#[tauri::command]
-#[specta::specta]
-pub fn clear_games(state: tauri::State<'_, AppState>) {
-    let mut state = state.db_cache.lock().unwrap();
-    state.clear();
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn home_row() {
-        use shakmaty::Board;
-
-        let pawn_home = get_pawn_home(&Board::default());
-        assert_eq!(pawn_home, 0b1111111111111111);
-
-        let pawn_home = get_pawn_home(
-            &Board::from_ascii_board_fen(b"8/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/8").unwrap(),
-        );
-        assert_eq!(pawn_home, 0b1110111111101111);
-
-        let pawn_home = get_pawn_home(&Board::from_ascii_board_fen(b"8/8/8/8/8/8/8/8").unwrap());
-        assert_eq!(pawn_home, 0b0000000000000000);
-    }
 }

@@ -1,6 +1,6 @@
 use super::{
-    create_event, create_player, create_site,
     models::{Event, Game, NewGame, NormalizedGame, Outcome, Player, Site, UpdateGame},
+    ops::{create_event, create_player, create_site},
     pgn::{GameTree, Importer},
     schema::{events, games, players, sites},
 };
