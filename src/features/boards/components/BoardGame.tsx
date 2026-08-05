@@ -35,7 +35,6 @@ import { useNavigate } from "@tanstack/react-router";
 import { save } from "@tauri-apps/plugin-dialog";
 import { parseUci } from "chessops";
 import { INITIAL_FEN } from "chessops/fen";
-import { makeSan, parseSan } from "chessops/san";
 import equal from "fast-deep-equal";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import {
@@ -68,13 +67,7 @@ import {
   loadableEnginesAtom,
   tabsAtom,
 } from "@/state/atoms";
-import {
-  getLastMainlinePosition,
-  getMainLine,
-  getMoveText,
-  getPGN,
-  getVariationLine,
-} from "@/utils/chess";
+import { getMainLine, getMoveText, getPGN } from "@/utils/chess";
 import { positionFromFen } from "@/utils/chessops";
 import type { TimeControlField } from "@/utils/clock";
 import { getDocumentDir } from "@/utils/documentDir";
@@ -90,6 +83,7 @@ import {
   type TreeState,
   treeIteratorMainLine,
 } from "@/utils/treeReducer";
+import { buildPlayGamePgn } from "../play/playGamePgn";
 import GameNotationWrapper from "./GameNotationWrapper";
 import ResponsiveBoard from "./ResponsiveBoard";
 
@@ -121,11 +115,13 @@ function EnginesSelect({ engine, setEngine, engines = [], enginesState }: Engine
 
   const engineOptions = useMemo(() => {
     const seen = new Set<string>();
-    return engines?.filter(({ path }) => {
-      if (seen.has(path)) return false;
-      seen.add(path);
-      return true;
-    }).map((engine) => ({ label: engine.name, value: engine.path }));
+    return engines
+      ?.filter(({ path }) => {
+        if (seen.has(path)) return false;
+        seen.add(path);
+        return true;
+      })
+      .map((engine) => ({ label: engine.name, value: engine.path }));
   }, [engines]);
 
   const handleEngineChange = useCallback(
@@ -1146,122 +1142,7 @@ function BoardGame() {
       }
     }
 
-    // Save the game record before resetting
-    // Only save if there are moves in the game
-    let savedPgn = ""; // Store PGN for use in creating analysis tab
-
-    // CRITICAL: Check if we actually have moves to save
-    const hasMoves = root.children.length > 0;
-
-    if (hasMoves) {
-      // Get the initial FEN from headers (set when game started)
-      // This is more reliable than root.fen which may change if user navigates back
-      const initialFen = headers.fen || root.fen;
-
-      // CRITICAL: We need to traverse from the actual root, not from current position
-      // The root should have the initial FEN, and all moves should be in root.children[0] chain
-
-      // Extract all SAN moves from the main line by traversing root.children[0] recursively
-      const sanMoves: string[] = [];
-      let currentNode = root;
-      let moveCount = 0;
-      const MAX_MOVES = 500; // Safety limit to prevent infinite loops
-
-      // Iterate through the main line manually to ensure we get all moves
-      while (currentNode.children.length > 0 && moveCount < MAX_MOVES) {
-        const child = currentNode.children[0]; // Always take the first child (main line)
-
-        // Each node in the main line should have a SAN move
-        if (child.san) {
-          sanMoves.push(child.san);
-          moveCount++;
-        } else if (child.move) {
-          // If a node doesn't have SAN, try to generate it from the move
-          const [pos, posError] = positionFromFen(currentNode.fen);
-          if (pos && !posError) {
-            try {
-              const san = makeSan(pos, child.move);
-              if (san && san !== "--") {
-                sanMoves.push(san);
-                moveCount++;
-              } else {
-                // Don't break - continue to next move
-                moveCount++;
-              }
-            } catch (e) {
-              // Don't break - continue to next move
-              moveCount++;
-            }
-          } else {
-            // Don't break - continue to next move
-            moveCount++;
-          }
-        } else {
-          // If node has neither SAN nor move, we've reached the end
-          break;
-        }
-
-        currentNode = child;
-      }
-
-      // Get the last node for final FEN
-      const mainLine = Array.from(treeIteratorMainLine(root));
-      const lastNode = mainLine[mainLine.length - 1].node;
-
-      // Use current result or "*" if game was stopped early
-      const gameResult = headers.result && headers.result !== "*" ? headers.result : "*";
-
-      // Build PGN headers
-      let pgn = `[Event "${headers.event || "Local Game"}"]\n`;
-      pgn += `[Site "${headers.site || "Pawn Appetit"}"]\n`;
-      pgn += `[Date "${headers.date || new Date().toISOString().split("T")[0].replace(/-/g, ".")}"]\n`;
-      pgn += `[Round "${headers.round || "?"}"]\n`;
-      pgn += `[White "${headers.white || "?"}"]\n`;
-      pgn += `[Black "${headers.black || "?"}"]\n`;
-      pgn += `[Result "${gameResult}"]\n`;
-      if (headers.time_control) {
-        pgn += `[TimeControl "${headers.time_control}"]\n`;
-      }
-      if (headers.variant) {
-        pgn += `[Variant "${headers.variant}"]\n`;
-      }
-      // Always include initial FEN if it's different from standard starting position
-      // Use headers.fen which was set when the game started
-      if (initialFen !== INITIAL_FEN) {
-        pgn += `[SetUp "1"]\n`;
-        pgn += `[FEN "${initialFen}"]\n`;
-      }
-      pgn += "\n";
-
-      // Format moves in PGN format (pair white and black moves)
-      if (sanMoves.length > 0) {
-        const movePairs: string[] = [];
-        for (let i = 0; i < sanMoves.length; i += 2) {
-          const moveNumber = Math.floor(i / 2) + 1;
-          const whiteMove = sanMoves[i];
-          const blackMove = sanMoves[i + 1];
-
-          if (blackMove) {
-            movePairs.push(`${moveNumber}. ${whiteMove} ${blackMove}`);
-          } else {
-            movePairs.push(`${moveNumber}. ${whiteMove}`);
-          }
-        }
-        pgn += movePairs.join(" ") + " " + gameResult;
-      } else {
-        pgn += gameResult;
-      }
-
-      // Ensure PGN is not empty and has moves
-      if (!pgn || pgn.trim().length === 0) {
-        // PGN is empty, skipping save
-      } else if (sanMoves.length === 0) {
-        // PGN has no moves - still save the PGN even without moves
-      } else {
-        // Store PGN for use in creating analysis tab
-        savedPgn = pgn.trim();
-      }
-    }
+    const savedPgn = buildPlayGamePgn({ root, headers }) ?? "";
 
     // Create new tab with the game (without focusing it)
     // Use the manually constructed PGN we already built above to ensure consistency
