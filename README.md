@@ -88,6 +88,7 @@ Whether you're preparing for tournaments, analyzing your games, or building open
 - [Development](#development)
   - [Prerequisites](#prerequisites)
   - [Building from Source](#building-from-source)
+  - [Development Checks](#development-checks)
   - [Docker Build](#docker-build)
 - [Comparison](#comparison)
 - [Roadmap](#roadmap)
@@ -201,6 +202,28 @@ Ensure you have the required tools installed for your platform:
    ```bash
    src-tauri/target/release
    ```
+
+### Development Checks
+
+Run frontend checks from the repository root:
+
+```bash
+pnpm test
+pnpm lint
+pnpm fmt:check
+```
+
+Run backend Rust checks from the repository root:
+
+```bash
+pnpm test:rust
+pnpm lint:rust
+pnpm fmt:rust:check
+```
+
+Backend Rust checks use `--no-default-features` so they work from a fresh checkout without a pre-existing frontend `dist` directory. Production Tauri builds keep the default `custom-protocol` feature and still validate embedded frontend assets.
+
+For a concise overview of the frontend/backend boundary, Tauri command flow, engine lifecycle, database modules, and common workflows, see [docs/architecture.md](./docs/architecture.md).
 
 ### Docker Build
 

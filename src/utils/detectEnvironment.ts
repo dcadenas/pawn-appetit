@@ -1,3 +1,5 @@
+import { isTauri } from "@tauri-apps/api/core";
+
 /**
  * Environment types that the application can run in
  */
@@ -35,15 +37,6 @@ export interface EnvironmentInfo {
 }
 
 /**
- * Extended window interface for Tauri detection
- */
-declare global {
-    interface Window {
-        __TAURI__?: unknown;
-    }
-}
-
-/**
  * Extended navigator interface for touch detection
  */
 interface ExtendedNavigator extends Navigator {
@@ -55,8 +48,7 @@ interface ExtendedNavigator extends Navigator {
  */
 function isTauriApp(): boolean {
     try {
-        // Check if Tauri APIs are available
-        return typeof window !== "undefined" && window.__TAURI__ !== undefined;
+        return isTauri();
     } catch {
         return false;
     }

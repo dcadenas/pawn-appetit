@@ -8,6 +8,7 @@ When it comes to open source, there are different ways you can contribute, all o
 - [Development](#development)
   - [Environment Variables](#environment-variables)
   - [Commands](#commands)
+  - [Architecture](#architecture)
 - [Contributing Translations](#contributing-translations)
   - [How to Contribute Translations](#how-to-contribute-translations)
   - [Adding a New Language](#adding-a-new-language)
@@ -62,19 +63,45 @@ VITE_SERVER_URL=https://example.com/databases
 
 `pnpm test`
 
-- Runs all tests, generating a report
+- Runs frontend tests
 
-`pnpm format`
+`pnpm test:rust`
+
+- Runs backend Rust unit tests without requiring a frontend `dist` directory
+
+`pnpm fmt`
 
 - Formats the project according to the project guidelines
 
+`pnpm fmt:check`
+
+- Checks frontend formatting without rewriting files
+
+`pnpm fmt:rust:check`
+
+- Checks Rust formatting without rewriting files
+
+`pnpm lint`
+
+- Lints frontend code
+
 `pnpm lint:fix`
 
-- Lints the project according to the project guidelines
+- Fixes frontend lint issues where possible
+
+`pnpm lint:rust`
+
+- Runs Clippy for backend Rust code in warning mode
 
 `pnpm build`
 
 - Builds the entire app from source. The built app can be found at [src-tauri/target/release](./src-tauri/target/release/)
+
+Backend Rust checks intentionally use `--no-default-features`. The default `custom-protocol` feature is still used for production Tauri builds and validates embedded frontend assets, so plain default-feature Cargo builds may require `dist`. Run `pnpm build-vite` before default-feature production sanity checks.
+
+### Architecture
+
+See [docs/architecture.md](./docs/architecture.md) for the frontend/backend boundary, state ownership, Tauri command flow, engine lifecycle, database modules, test commands, and common development workflows.
 
 ## Contributing Translations
 
@@ -131,7 +158,7 @@ i18n.use(initReactI18next).init({
 
 - Implement your contributions (see the [Development](#development) section for more information)
 - Before submitting a PR, first build the app using `pnpm tauri build -b none` and check every feature you've contributed to.
-- Format and lint your code using `pnpm format` followed by `pnpm lint:fix`
+- Format and lint your code using `pnpm fmt`, `pnpm lint:fix`, `pnpm fmt:rust:check`, and `pnpm lint:rust` as appropriate
 - If you're contributing translations, follow the steps in [Verifying and Finalizing Translation Changes](#verifying-and-finalizing-translation-changes)
 - Go to [the comparison page](https://github.com/Pawn-Appetit/pawn-appetit/compare) and select the branch you just pushed in the `compare:` dropdown
 - Submit the new PR. The maintainers will follow up ASAP.
@@ -142,3 +169,4 @@ The app uses the Rust language for interacting with the filesystem, chess engine
 
 - The Rust code can be found in [src-tauri/src](./src-tauri/src/)
 - The React code can be found in [src](./src/)
+- The architecture overview can be found in [docs/architecture.md](./docs/architecture.md)

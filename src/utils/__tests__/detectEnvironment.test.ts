@@ -1,7 +1,14 @@
 declare var global: any;
 
+import { isTauri } from "@tauri-apps/api/core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { detectEnvironment, env, getEnvironmentInfo } from "@/utils/detectEnvironment";
+
+vi.mock("@tauri-apps/api/core", () => ({
+    isTauri: vi.fn<() => boolean>(() => false),
+}));
+
+const mockIsTauri = vi.mocked(isTauri);
 
 // Mock globals for testing
 const mockWindow = (overrides = {}) => {
@@ -25,6 +32,7 @@ describe("Environment Detection", () => {
     beforeEach(() => {
         // Reset all mocks
         vi.clearAllMocks();
+        mockIsTauri.mockReturnValue(false);
 
         // Mock window and navigator
         Object.defineProperty(global, "window", {
@@ -55,11 +63,7 @@ describe("Environment Detection", () => {
         });
 
         it("should detect desktop environment when Tauri is available", () => {
-            const windowWithTauri = { ...mockWindow(), __TAURI__: {} };
-            Object.defineProperty(global, "window", {
-                value: windowWithTauri,
-                writable: true,
-            });
+            mockIsTauri.mockReturnValue(true);
 
             const env = detectEnvironment();
             expect(env).toBe("desktop");
@@ -122,11 +126,7 @@ describe("Environment Detection", () => {
         });
 
         it("should return complete environment info for desktop/Tauri", () => {
-            const windowWithTauri = { ...mockWindow(), __TAURI__: {} };
-            Object.defineProperty(global, "window", {
-                value: windowWithTauri,
-                writable: true,
-            });
+            mockIsTauri.mockReturnValue(true);
 
             const info = getEnvironmentInfo();
 
@@ -198,11 +198,7 @@ describe("Environment Detection", () => {
 
     describe("Platform detection", () => {
         it("should detect Windows platform in Tauri", () => {
-            const windowWithTauri = { ...mockWindow(), __TAURI__: {} };
-            Object.defineProperty(global, "window", {
-                value: windowWithTauri,
-                writable: true,
-            });
+            mockIsTauri.mockReturnValue(true);
 
             Object.defineProperty(global, "navigator", {
                 value: mockNavigator({
@@ -216,11 +212,7 @@ describe("Environment Detection", () => {
         });
 
         it("should detect Linux platform in Tauri", () => {
-            const windowWithTauri = { ...mockWindow(), __TAURI__: {} };
-            Object.defineProperty(global, "window", {
-                value: windowWithTauri,
-                writable: true,
-            });
+            mockIsTauri.mockReturnValue(true);
 
             Object.defineProperty(global, "navigator", {
                 value: mockNavigator({

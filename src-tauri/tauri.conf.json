@@ -68,7 +68,7 @@
     }
   },
   "app": {
-    "withGlobalTauri": true,
+    "withGlobalTauri": false,
     "windows": [
       {
         "label": "main",
@@ -85,7 +85,12 @@
     "security": {
       "assetProtocol": {
         "scope": [
-          "**"
+          "$APPDATA/**",
+          "$APPLOCALDATA/**",
+          "$APPLOG/**",
+          "$RESOURCE/sound/**",
+          "$TEMP/pawn-appetit/**",
+          "$DOCUMENT/Pawn Appetit/**"
         ],
         "enable": true
       },

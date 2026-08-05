@@ -23,6 +23,7 @@ import {
 } from "@/app/commands";
 import { buildSearchProviders } from "@/app/search";
 import type { Dirs } from "@/App";
+import { commands } from "@/bindings";
 import AboutModal from "@/components/About";
 import { SideBar } from "@/components/Sidebar";
 import StatusBar from "@/components/StatusBar";
@@ -782,14 +783,14 @@ function RootLayout() {
             label: t("features.menu.documentation"),
             id: "documentation",
             action: async () => {
-              await openPath("https://pawnappetit.com/docs");
+              await commands.openExternalLink("https://pawnappetit.com/docs");
             },
           },
           {
             label: t("features.menu.reportIssue"),
             id: "report_issue",
             action: async () => {
-              await openPath("https://github.com/Pawn-Appetit/pawn-appetit/issues/new");
+              await commands.openExternalLink("https://github.com/Pawn-Appetit/pawn-appetit/issues/new");
             },
           },
           { label: "divider" },

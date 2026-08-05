@@ -219,7 +219,60 @@ fn memory_size() -> u64 {
 #[tauri::command]
 #[specta::specta]
 async fn open_external_link(app: AppHandle, url: String) -> Result<(), String> {
+    if !is_supported_external_url(&url) {
+        return Err(format!("Unsupported external URL: {}", url));
+    }
+
     tauri_plugin_opener::OpenerExt::opener(&app)
         .open_url(url, None::<String>)
         .map_err(|e| format!("Failed to open external link: {}", e))
+}
+
+fn is_supported_external_url(url: &str) -> bool {
+    let Ok(url) = reqwest::Url::parse(url) else {
+        return false;
+    };
+    if url.scheme() != "https" {
+        return false;
+    }
+
+    let Some(host) = url.host_str().map(|host| host.to_ascii_lowercase()) else {
+        return false;
+    };
+    let path = url.path();
+
+    match host.as_str() {
+        "lichess.org" | "www.lichess.org" => true,
+        "chess.com" | "www.chess.com" => true,
+        "pawnappetit.com" | "www.pawnappetit.com" => path == "/docs" || path.starts_with("/docs/"),
+        "github.com" => {
+            path == "/Pawn-Appetit/pawn-appetit" || path.starts_with("/Pawn-Appetit/pawn-appetit/")
+        }
+        _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_supported_external_url;
+
+    #[test]
+    fn external_link_allowlist_accepts_supported_urls() {
+        assert!(is_supported_external_url("https://pawnappetit.com/docs"));
+        assert!(is_supported_external_url(
+            "https://github.com/Pawn-Appetit/pawn-appetit/issues/new"
+        ));
+        assert!(is_supported_external_url("https://lichess.org/abc123"));
+        assert!(is_supported_external_url(
+            "https://www.chess.com/game/live/123"
+        ));
+    }
+
+    #[test]
+    fn external_link_allowlist_rejects_unsupported_urls() {
+        assert!(!is_supported_external_url("http://lichess.org/abc123"));
+        assert!(!is_supported_external_url("https://example.com"));
+        assert!(!is_supported_external_url("file:///tmp/game.pgn"));
+        assert!(!is_supported_external_url("not-a-url"));
+    }
 }

@@ -178,7 +178,11 @@ function RatingsPanel({ playerName, info }: { playerName: string; info: PlayerGa
               <Tooltip
                 contentStyle={tooltipContentStyle}
                 cursor={tooltipCursorStyle}
-                labelFormatter={(label) => new Date(label).toLocaleDateString()}
+                labelFormatter={(label) =>
+                  typeof label === "string" || typeof label === "number"
+                    ? new Date(label).toLocaleDateString()
+                    : ""
+                }
               />
               <Area
                 name="Rating"

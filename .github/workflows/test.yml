@@ -22,7 +22,7 @@ jobs:
           version: 11.13.0
 
       - name: Setup Node.js and pnpm cache
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: lts/*
           cache: pnpm
@@ -32,23 +32,20 @@ jobs:
 
       - name: Run tests
         run: pnpm test
-        
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          components: rustfmt # clippy
+          components: rustfmt, clippy
 
       - name: Check Rust formatting
-        run: cargo fmt --check
-        working-directory: src-tauri
+        run: pnpm fmt:rust:check
 
-      # - name: Rust clippy
-      #   run: cargo clippy -- -D warnings
-      #   working-directory: src-tauri
+      - name: Rust unit tests
+        run: pnpm test:rust
 
-      # - name: Rust unit tests
-      #   run: cargo test
-      #   working-directory: src-tauri
+      - name: Rust clippy
+        run: pnpm lint:rust
 
       - name: Frontend lint
         run: pnpm lint

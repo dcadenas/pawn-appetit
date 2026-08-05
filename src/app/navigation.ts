@@ -25,6 +25,7 @@ export type AppNavigationItem = {
     descriptionKey?: string;
     icon: Icon;
     url: string;
+    activeMatch?: "exact" | "fuzzy";
     section: "workbench" | "library" | "system";
 };
 
