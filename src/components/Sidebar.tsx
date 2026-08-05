@@ -62,7 +62,9 @@ function SidebarItem({ item, collapsed }: SidebarItemProps) {
   const { layout } = useResponsiveLayout();
   const Icon = item.icon;
   const label = t(item.labelKey, labelFallbacks[item.id]);
-  const active = Boolean(matchesRoute({ to: item.url, fuzzy: true }));
+  const active = Boolean(
+    matchesRoute({ to: item.url, fuzzy: item.activeMatch !== "exact" }),
+  );
 
   const content = (
     <Link
