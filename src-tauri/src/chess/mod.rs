@@ -8,8 +8,11 @@ pub mod commands;
 pub mod evaluation;
 pub mod manager;
 pub mod process;
+pub mod session;
 pub mod types;
 pub mod uci;
 
 #[allow(unused_imports)]
-pub use {analysis::*, commands::*, evaluation::*, manager::*, process::*, types::*, uci::*};
+pub use {
+    analysis::*, commands::*, evaluation::*, manager::*, process::*, session::*, types::*, uci::*,
+};

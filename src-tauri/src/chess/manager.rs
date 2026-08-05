@@ -106,8 +106,10 @@ impl<'a> EngineManager<'a> {
         let engines_map = self.state.engine_processes.clone();
         tokio::spawn(async move {
             info!(
-                "Engine loop started: tab={} engine={}",
-                key_cloned.0, key_cloned.1
+                "Engine loop started: tab={} engine={} session={}",
+                key_cloned.0,
+                key_cloned.1,
+                process.lock().await.lifecycle.session_id
             );
             // Limit event emission rate to avoid UI flooding.
             let lim = governor::RateLimiter::direct(governor::Quota::per_second(
@@ -203,6 +205,8 @@ impl<'a> EngineManager<'a> {
                             .emit(&app_cloned)
                             .ok();
                             proc.last_progress = 100.0;
+                            proc.running = false;
+                            proc.lifecycle.mark_ready();
                         }
                         _ => {}
                     }
@@ -213,6 +217,9 @@ impl<'a> EngineManager<'a> {
                 "Engine process finished: tab: {}, engine: {}",
                 key_cloned.0, key_cloned.1
             );
+            if let Some(proc_arc) = engines_map.get(&key_cloned) {
+                proc_arc.lock().await.lifecycle.mark_stopped();
+            }
             engines_map.remove(&key_cloned);
         });
 

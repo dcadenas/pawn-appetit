@@ -11,6 +11,7 @@ use vampirc_uci::{uci::ScoreValue, UciInfoAttribute};
 
 use crate::error::Error;
 
+use super::session::EngineLifecycle;
 use super::types::{BestMoves, EngineLog, EngineOptions, GoMode};
 use super::uci::UciCommunicator;
 use shakmaty::{fen::Fen, san::SanPlus, uci::UciMove, CastlingMode, Chess, Color, Position};
@@ -20,6 +21,7 @@ pub const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 /// Represents a running UCI engine process and its state.
 pub struct EngineProcess {
+    pub lifecycle: EngineLifecycle,
     pub child: tokio::process::Child,
     pub stdin: tokio::process::ChildStdin,
     pub last_depth: u32,
@@ -50,6 +52,9 @@ impl EngineProcess {
         ),
         Error,
     > {
+        let mut lifecycle = EngineLifecycle::new();
+        lifecycle.mark_starting();
+
         let mut comm = UciCommunicator::spawn(path).await?;
 
         let mut logs = Vec::new();
@@ -124,8 +129,11 @@ impl EngineProcess {
             }
         }
 
+        lifecycle.mark_ready();
+
         Ok((
             Self {
+                lifecycle,
                 child: comm.child,
                 stdin: comm.stdin,
                 last_depth: 0,
@@ -226,7 +234,11 @@ impl EngineProcess {
             }
             GoMode::Infinite => "go infinite\n".to_string(),
         };
-        self.stdin.write_all(msg.as_bytes()).await?;
+        self.lifecycle.start_search();
+        if let Err(e) = self.stdin.write_all(msg.as_bytes()).await {
+            self.lifecycle.mark_failed(e.to_string());
+            return Err(e.into());
+        }
         self.logs.push(EngineLog::Gui(msg));
         self.running = true;
         self.start = Instant::now();
@@ -235,9 +247,16 @@ impl EngineProcess {
 
     /// Stop the engine's current search.
     pub async fn stop(&mut self) -> Result<(), Error> {
-        self.stdin.write_all(b"stop\n").await?;
+        if !self.lifecycle.begin_search_stop() {
+            return Ok(());
+        }
+        if let Err(e) = self.stdin.write_all(b"stop\n").await {
+            self.lifecycle.mark_failed(e.to_string());
+            return Err(e.into());
+        }
         self.logs.push(EngineLog::Gui("stop\n".to_string()));
         self.running = false;
+        self.lifecycle.mark_ready();
         Ok(())
     }
 
@@ -247,6 +266,10 @@ impl EngineProcess {
     /// If engine doesn't terminate, forcefully kills the process.
     pub async fn kill(&mut self) -> Result<(), Error> {
         use log::warn;
+
+        if !self.lifecycle.begin_shutdown() {
+            return Ok(());
+        }
 
         // Try graceful shutdown first
         if let Err(e) = self.stdin.write_all(b"quit\n").await {
@@ -264,22 +287,31 @@ impl EngineProcess {
         match wait_result {
             Ok(Ok(status)) => {
                 log::info!("Engine process exited gracefully with status: {:?}", status);
+                self.lifecycle.mark_stopped();
                 Ok(())
             }
             Ok(Err(e)) => {
                 warn!("Error waiting for engine process: {}", e);
                 // Try force kill
-                self.child.kill().await?;
+                if let Err(kill_error) = self.child.kill().await {
+                    self.lifecycle.mark_failed(kill_error.to_string());
+                    return Err(kill_error.into());
+                }
                 log::info!("Engine process force-killed");
+                self.lifecycle.mark_stopped();
                 Ok(())
             }
             Err(_) => {
                 // Timeout - force kill
                 warn!("Engine did not exit gracefully, force-killing");
-                self.child.kill().await?;
+                if let Err(kill_error) = self.child.kill().await {
+                    self.lifecycle.mark_failed(kill_error.to_string());
+                    return Err(kill_error.into());
+                }
                 // Wait for kill to complete
                 let _ = self.child.wait().await;
                 log::info!("Engine process force-killed after timeout");
+                self.lifecycle.mark_stopped();
                 Ok(())
             }
         }
