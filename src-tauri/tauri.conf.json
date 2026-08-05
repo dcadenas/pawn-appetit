@@ -29,6 +29,17 @@
       }
     },
     "publisher": "Pawn-Appetit Team",
+    "fileAssociations": [
+      {
+        "ext": [
+          "pgn"
+        ],
+        "name": "Portable Game Notation",
+        "description": "Chess PGN file",
+        "mimeType": "application/x-chess-pgn",
+        "role": "Editor"
+      }
+    ],
     "shortDescription": "Ultimate Chess Toolkit",
     "longDescription": "",
     "macOS": {

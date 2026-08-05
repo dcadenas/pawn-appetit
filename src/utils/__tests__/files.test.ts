@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
+import { getRecentFiles } from "../recentFiles";
 import { deserializeStorageValue } from "../tabStateStorage";
 
 const mocks = vi.hoisted(() => ({
@@ -55,6 +56,7 @@ describe("openFile", () => {
     beforeEach(() => {
         vi.clearAllMocks();
         sessionStorage.clear();
+        localStorage.clear();
         mocks.countPgnGames.mockResolvedValue({ status: "ok", data: 3 });
         mocks.readGames.mockResolvedValue({
             status: "ok",
@@ -93,5 +95,18 @@ describe("openFile", () => {
             version: 0,
             state: { headers: { event: "First" } },
         });
+    });
+
+    test("records a recent PGN after a successful open", async () => {
+        const { openFileAndRemember } = await import("../files");
+
+        await openFileAndRemember("/docs/recent.pgn", vi.fn<() => void>(), vi.fn<() => void>());
+
+        expect(getRecentFiles()).toEqual([
+            expect.objectContaining({
+                path: "/docs/recent.pgn",
+                name: "recent",
+            }),
+        ]);
     });
 });

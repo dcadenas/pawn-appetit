@@ -33,7 +33,7 @@ import i18n from "./i18n";
 import { routeTree } from "./routeTree.gen";
 import type { VersionCheckResult } from "./services/version-checker";
 import { getDocumentDir } from "./utils/documentDir";
-import { openFile } from "./utils/files";
+import { openFileAndRemember } from "./utils/files";
 
 export type Dirs = {
   documentDir: string;
@@ -220,7 +220,7 @@ function useAppInitialization() {
       const matches = await getMatches();
       if (matches.args.file.occurrences > 0 && typeof matches.args.file.value === "string") {
         info(`Opening file from command line: ${matches.args.file.value}`);
-        await openFile(matches.args.file.value, setTabs, setActiveTab);
+        await openFileAndRemember(matches.args.file.value, setTabs, setActiveTab);
       }
     } catch (e) {
       error(`Failed to handle command line file: ${e}`);

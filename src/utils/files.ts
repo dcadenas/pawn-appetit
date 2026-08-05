@@ -8,6 +8,7 @@ import { commands } from "@/bindings";
 import { invalidateFileIndex, type FileMetadata } from "@/features/files/utils/file";
 import { unwrap } from "@/utils/unwrap";
 import { parsePGN } from "./chess";
+import { recordRecentFile } from "./recentFiles";
 import { serializeStorageValue } from "./tabStateStorage";
 import { createTab, type Tab } from "./tabs";
 import { getGameName } from "./treeReducer";
@@ -87,6 +88,15 @@ export async function openFile(
     // Store the first game's state in session storage (for backward compatibility)
     // The analysis board will handle multiple games through the pgn content
     sessionStorage.setItem(tabId, serializeStorageValue({ version: 0, state: firstGameTree }));
+}
+
+export async function openFileAndRemember(
+    file: string,
+    setTabs: React.Dispatch<React.SetStateAction<Tab[]>>,
+    setActiveTab: React.Dispatch<React.SetStateAction<string | null>>,
+) {
+    await openFile(file, setTabs, setActiveTab);
+    recordRecentFile(file);
 }
 
 export async function createFile({

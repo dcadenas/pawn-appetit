@@ -7,13 +7,14 @@ import { useQuery } from "@tanstack/react-query";
 import { createRootRouteWithContext, Outlet, useNavigate } from "@tanstack/react-router";
 import { Menu, MenuItem, PredefinedMenuItem, Submenu } from "@tauri-apps/api/menu";
 import { appLogDir, resolve } from "@tauri-apps/api/path";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { ask, message, open } from "@tauri-apps/plugin-dialog";
 import { openPath } from "@tauri-apps/plugin-opener";
 import { exit, relaunch } from "@tauri-apps/plugin-process";
 import { check } from "@tauri-apps/plugin-updater";
 import { useAtom } from "jotai";
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { match } from "ts-pattern";
 import {
@@ -38,8 +39,14 @@ import { CUSTOM_EVENTS } from "@/features/boards/constants";
 import { useResponsiveLayout } from "@/hooks/useResponsiveLayout";
 import { activeTabAtom, densityAtom, tabsAtom } from "@/state/atoms";
 import { keyMapAtom } from "@/state/keybindings";
-import { openFile } from "@/utils/files";
+import { openFileAndRemember } from "@/utils/files";
 import { formatHotkeyDisplay } from "@/utils/formatHotkey";
+import {
+  clearRecentFiles,
+  getRecentFiles,
+  isSupportedPgnFilePath,
+  removeRecentFile,
+} from "@/utils/recentFiles";
 import { createTab } from "@/utils/tabs";
 
 const INPUT_ELEMENT_TAGS = new Set(["INPUT", "TEXTAREA"]);
@@ -152,6 +159,38 @@ function RootLayout() {
   const [activeTab, setActiveTab] = useAtom(activeTabAtom);
   const [density] = useAtom(densityAtom);
   const [keyMap] = useAtom(keyMapAtom);
+  const [recentFiles, setRecentFiles] = useState(() => getRecentFiles());
+
+  const openPgnFilePath = useCallback(
+    async (filePath: string) => {
+      if (!isSupportedPgnFilePath(filePath)) {
+        notifications.show({
+          title: t("common.unsupportedFile", "Unsupported file"),
+          message: t("notifications.onlyPgnFilesSupported", "Only PGN files can be opened here."),
+          color: "yellow",
+        });
+        return false;
+      }
+
+      try {
+        await openFileAndRemember(filePath, setTabs, setActiveTab);
+        setRecentFiles(getRecentFiles());
+        navigate({ to: "/boards" });
+        return true;
+      } catch (error) {
+        console.error("Failed to open PGN file:", error);
+        removeRecentFile(filePath);
+        setRecentFiles(getRecentFiles());
+        notifications.show({
+          title: t("common.error"),
+          message: t("notifications.failedToOpenFile"),
+          color: "red",
+        });
+        return false;
+      }
+    },
+    [navigate, setActiveTab, setTabs, t],
+  );
 
   const openNewFile = useCallback(async () => {
     try {
@@ -161,8 +200,7 @@ function RootLayout() {
       });
 
       if (typeof selected === "string") {
-        await openFile(selected, setTabs, setActiveTab);
-        navigate({ to: "/boards" });
+        await openPgnFilePath(selected);
       }
     } catch (error) {
       console.error("Failed to open file:", error);
@@ -172,7 +210,60 @@ function RootLayout() {
         color: "red",
       });
     }
-  }, [navigate, setActiveTab, setTabs, t]);
+  }, [openPgnFilePath, t]);
+
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    let disposed = false;
+
+    getCurrentWindow()
+      .onDragDropEvent(async ({ payload }) => {
+        if (payload.type !== "drop") return;
+
+        const pgnPaths = payload.paths.filter(isSupportedPgnFilePath);
+        if (pgnPaths.length === 0) {
+          notifications.show({
+            title: t("common.unsupportedFile", "Unsupported file"),
+            message: t("notifications.onlyPgnFilesSupported", "Only PGN files can be opened here."),
+            color: "yellow",
+          });
+          return;
+        }
+
+        let opened = 0;
+        for (const filePath of pgnPaths) {
+          if (await openPgnFilePath(filePath)) {
+            opened += 1;
+          }
+        }
+
+        if (opened > 0) {
+          notifications.show({
+            title: t("features.menu.openFile"),
+            message: t("notifications.pgnFilesOpened", {
+              defaultValue: `Opened ${opened} PGN file${opened === 1 ? "" : "s"}.`,
+              count: opened,
+            }),
+            color: "green",
+          });
+        }
+      })
+      .then((cleanup) => {
+        if (disposed) {
+          cleanup();
+          return;
+        }
+        unlisten = cleanup;
+      })
+      .catch((error) => {
+        console.error("Failed to register file drop handler:", error);
+      });
+
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [openPgnFilePath, t]);
 
   const createNewTab = useCallback(() => {
     navigate({ to: "/boards" });
@@ -683,6 +774,24 @@ function RootLayout() {
             shortcut: formatHotkeyDisplay(keyMap.OPEN_FILE.keys),
             action: openNewFile,
           },
+          ...(recentFiles.length > 0
+            ? [
+                { label: "divider" },
+                ...recentFiles.map((file, index) => ({
+                  label: file.name,
+                  id: `recent_file_${index}`,
+                  action: () => void openPgnFilePath(file.path),
+                })),
+                {
+                  label: t("features.menu.clearRecentFiles", "Clear Recent Files"),
+                  id: "clear_recent_files",
+                  action: () => {
+                    clearRecentFiles();
+                    setRecentFiles([]);
+                  },
+                },
+              ]
+            : []),
           ...commandMenuOptions(t("features.menu.file")),
         ],
       },
@@ -829,6 +938,8 @@ function RootLayout() {
       navigate,
       setTabs,
       setActiveTab,
+      recentFiles,
+      openPgnFilePath,
       handleCut,
       handleCopy,
       handlePaste,
